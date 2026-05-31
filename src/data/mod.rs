@@ -17,6 +17,7 @@ pub mod enemy;
 pub mod item;
 pub mod map;
 pub mod map_info;
+pub mod note;
 pub mod skill;
 pub mod state;
 pub mod system;
@@ -37,6 +38,7 @@ pub use map::{
     MoveRoute,
 };
 pub use map_info::MapInfo;
+pub use note::HasNote;
 pub use skill::Skill;
 pub use state::State;
 pub use system::{System, Terms};

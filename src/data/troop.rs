@@ -1,6 +1,6 @@
 //! `Troops.json` — enemy groups and their battle event pages.
 
-use bevy_reflect::Reflect;
+use bevy_reflect::{Reflect, TypePath};
 use serde::{Deserialize, Serialize};
 
 use crate::data::common::EventCommand;
@@ -66,7 +66,7 @@ pub struct TroopPage {
 /// A single entry in `Troops.json`.
 ///
 /// Not `Reflect`: its pages hold [`EventCommand`] lists.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TypePath)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Troop {
     /// Database id (1-based).
