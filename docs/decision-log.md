@@ -105,3 +105,20 @@ Each entry uses the format:
 - **WHY:** Free for public repos with no approval gate and minimal setup; adds
   design/logic review that static lint can't, while avoiding duplicate noise on
   what CI already enforces.
+
+## Data models tolerate version drift via serde(default)
+- **WHEN:** 2026-05-31
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** data-model
+- **SCOPE:** moderate
+- **WHAT:** Apply `#[serde(default)]` + `Default` uniformly across the whole data
+  layer so database records still deserialize when fields are missing, rather than
+  modeling files strictly. Fixed-size arrays (e.g. `params: [i32; 8]`) keep their
+  length check when the field is present.
+- **WHY:** Validating the models against a real, long-lived MZ project (deserialized
+  its full `data/` — all standard files + 23 maps) revealed version drift: older
+  `States.json` entries omit fields added in later engine versions (e.g.
+  `releaseByDamage`), which broke strict structs. Real projects upgraded across MZ
+  versions are not field-uniform, so tolerance is required for the loader to be
+  usable on actual games. Unknown/extra fields are already ignored by serde; this
+  covers the missing-field direction.

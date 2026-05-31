@@ -1,5 +1,6 @@
 //! `CommonEvents.json` — reusable event command lists.
 
+use bevy_reflect::TypePath;
 use serde::{Deserialize, Serialize};
 
 use crate::data::common::EventCommand;
@@ -8,7 +9,7 @@ use crate::data::common::EventCommand;
 ///
 /// Not `Reflect`: it holds an [`EventCommand`] list, whose parameters are
 /// `serde_json::Value`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TypePath)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CommonEvent {
     /// Database id (1-based).
