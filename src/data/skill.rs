@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::{Damage, Effect};
 
 /// A single skill entry from `Skills.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Skill {
     /// Database id (1-based).
     pub id: i32,
@@ -27,6 +27,8 @@ pub struct Skill {
     pub message1: String,
     /// Second usage message line.
     pub message2: String,
+    /// How the usage message is shown: 0 hide, 1 use `message1`, 2 use both.
+    pub message_type: i32,
     /// MP cost.
     pub mp_cost: i32,
     /// Display name.

@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 /// MZ encodes every trait uniformly as a `(code, dataId, value)` triple. The
 /// meaning of `data_id` and `value` depends on `code` (e.g. element rate, state
 /// resist, parameter multiplier); this type intentionally does not interpret it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Trait {
     /// Trait code identifying what the trait does.
     pub code: i32,
@@ -28,8 +28,8 @@ pub struct Trait {
 }
 
 /// An effect applied by an item or a skill (recover HP, add a state, etc.).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Effect {
     /// Effect code identifying what the effect does.
     pub code: i32,
@@ -42,8 +42,8 @@ pub struct Effect {
 }
 
 /// The damage calculation for an item or skill.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Damage {
     /// Damage type: 0 none, 1 HP damage, 2 MP damage, 3 HP recover, 4 MP recover,
     /// 5 HP drain, 6 MP drain. Named `kind` because `type` is a Rust keyword.
@@ -68,7 +68,8 @@ pub struct Damage {
 ///
 /// This type is deliberately **not** `Reflect`: [`serde_json::Value`] does not
 /// implement [`bevy_reflect::Reflect`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EventCommand {
     /// Command code identifying the operation (e.g. 401 = show-text line).
     pub code: i32,

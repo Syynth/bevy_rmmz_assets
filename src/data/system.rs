@@ -2,8 +2,10 @@
 //!
 //! `System.json` is a single large object with many fields. These models cover
 //! the commonly-used ones and use `#[serde(default)]` so unmodeled or
-//! version-specific fields are ignored rather than failing the load. **Validate
-//! the finer fields against a real project before relying on them.**
+//! version-specific fields are ignored rather than failing the load. Validated
+//! against a real MZ project's `System.json`; the long tail of less-common
+//! fields (vehicles, title/gameover assets, advanced options) is intentionally
+//! unmodeled and ignored on load.
 
 use std::collections::HashMap;
 

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::Trait;
 
 /// One entry in an enemy's action pattern.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct EnemyAction {
     /// First condition parameter; meaning depends on `condition_type`.
     pub condition_param1: f64,
@@ -22,8 +22,8 @@ pub struct EnemyAction {
 }
 
 /// A possible item drop from an enemy.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct DropItem {
     /// Id of the dropped data entry; interpreted per `kind`.
     pub data_id: i32,
@@ -34,8 +34,8 @@ pub struct DropItem {
 }
 
 /// A single enemy entry from `Enemies.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Enemy {
     /// Database id (1-based).
     pub id: i32,

@@ -3,8 +3,8 @@
 //! RPG Maker MZ animations are Effekseer-based and the on-disk shape varies
 //! (MZ-native vs. MV-compatibility entries). These models cover the documented
 //! MZ fields and use `#[serde(default)]` so entries that omit fields still load.
-//! **Validate against a real project's `Animations.json` before relying on the
-//! finer fields.**
+//! Validated against a real MZ project's `Animations.json`; rarely-used or
+//! plugin-specific fields may remain unmodeled and are ignored on load.
 
 use bevy_reflect::Reflect;
 use serde::{Deserialize, Serialize};

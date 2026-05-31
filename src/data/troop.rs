@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::EventCommand;
 
 /// A member (enemy placement) of a troop.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct TroopMember {
     /// Id of the enemy placed.
     pub enemy_id: i32,
@@ -20,8 +20,8 @@ pub struct TroopMember {
 }
 
 /// The condition gating a troop event page.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct TroopPageConditions {
     /// HP percentage threshold for the actor condition.
     pub actor_hp: i32,
@@ -52,8 +52,8 @@ pub struct TroopPageConditions {
 /// A battle event page within a troop.
 ///
 /// Not `Reflect`: it holds an [`EventCommand`] list.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct TroopPage {
     /// Condition that must hold for the page to run.
     pub conditions: TroopPageConditions,
@@ -66,8 +66,8 @@ pub struct TroopPage {
 /// A single entry in `Troops.json`.
 ///
 /// Not `Reflect`: its pages hold [`EventCommand`] lists.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Troop {
     /// Database id (1-based).
     pub id: i32,

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// The file is a null-padded array (index 0 is `null`); padding is handled by
 /// the asset layer.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct MapInfo {
     /// Map id this entry describes (matches the `Map###.json` number).
     pub id: i32,

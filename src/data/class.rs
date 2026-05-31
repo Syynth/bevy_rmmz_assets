@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::Trait;
 
 /// A skill the class learns at a given level.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Learning {
     /// Level at which the skill is learned.
     pub level: i32,
@@ -18,8 +18,8 @@ pub struct Learning {
 }
 
 /// A single class entry from `Classes.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Class {
     /// Database id (1-based).
     pub id: i32,

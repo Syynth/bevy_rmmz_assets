@@ -287,4 +287,26 @@ mod tests {
         // Unspecified fields default.
         assert!(!m.autoplay_bgm);
     }
+
+    // Regression: long-lived MZ projects omit fields added in later versions
+    // (e.g. `releaseByDamage`, `messageType` on states). serde(default) must
+    // tolerate the gaps rather than failing the whole load. Verified against a
+    // real project during development.
+    #[test]
+    fn entity_tolerates_version_drift_gaps() {
+        let json = r#"{
+            "id":1,"autoRemovalTiming":1,"chanceByDamage":100,"traits":[],
+            "iconIndex":4,"maxTurns":3,"message1":"","message2":"","message3":"",
+            "message4":"","minTurns":1,"motion":0,"name":"Poison","note":"",
+            "overlay":0,"priority":50,"removeAtBattleEnd":false,
+            "removeByRestriction":false,"removeByWalking":true,
+            "restriction":0,"stepsToRemove":100
+        }"#;
+        // `releaseByDamage`, `removeByDamage`, and `messageType` are absent.
+        let s: State = serde_json::from_str(json).unwrap();
+        assert!(!s.release_by_damage);
+        assert!(!s.remove_by_damage);
+        assert_eq!(s.message_type, 0);
+        assert_eq!(s.name, "Poison");
+    }
 }

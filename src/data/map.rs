@@ -3,8 +3,9 @@
 //! Maps are large and event-heavy. These models cover the documented MZ fields
 //! and use `#[serde(default)]` for resilience. Types that hold event command
 //! lists (or move-route commands) are **not** `Reflect`, since their parameters
-//! are `serde_json::Value`. **Validate against a real `Map###.json` before
-//! relying on the finer event fields.**
+//! are `serde_json::Value`. Validated against a real MZ project's maps;
+//! rarely-used or plugin-specific fields may remain unmodeled and are ignored on
+//! load.
 
 use bevy_reflect::Reflect;
 use serde::{Deserialize, Serialize};

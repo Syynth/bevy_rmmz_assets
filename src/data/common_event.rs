@@ -8,8 +8,8 @@ use crate::data::common::EventCommand;
 ///
 /// Not `Reflect`: it holds an [`EventCommand`] list, whose parameters are
 /// `serde_json::Value`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct CommonEvent {
     /// Database id (1-based).
     pub id: i32,
