@@ -26,6 +26,8 @@
 //! [RPG Maker MZ]: https://www.rpgmakerweb.com/products/rpg-maker-mz
 //! [Bevy]: https://bevyengine.org
 
+pub mod data;
+
 mod plugin;
 
 pub mod prelude;

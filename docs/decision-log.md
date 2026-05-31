@@ -91,3 +91,17 @@ Each entry uses the format:
   `rust-toolchain.toml`.
 - **WHY:** Start the new crate on the current stable toolchain rather than the
   slightly older 1.95 used elsewhere.
+
+## CodeRabbit as automated PR reviewer
+- **WHEN:** 2026-05-31
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** process
+- **SCOPE:** moderate
+- **WHAT:** Adopt CodeRabbit (free public-repo tier) as the automated PR reviewer,
+  configured via `.coderabbit.yaml`: assertive profile, request-changes off (CI
+  remains the merge gate), and Rust path-instructions steering it toward
+  correctness/API/serde-fidelity rather than lint/format nits already enforced by
+  rustfmt + strict clippy.
+- **WHY:** Free for public repos with no approval gate and minimal setup; adds
+  design/logic review that static lint can't, while avoiding duplicate noise on
+  what CI already enforces.
