@@ -5,3 +5,4 @@
 //! ```
 
 pub use crate::RmmzAssetsPlugin;
+pub use crate::data::{Damage, Effect, EventCommand, Trait};
