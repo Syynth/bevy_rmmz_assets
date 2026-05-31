@@ -24,7 +24,7 @@ pub struct Class {
     /// Database id (1-based).
     pub id: i32,
     /// EXP curve parameters: `[basis, extra, accelerationA, accelerationB]`.
-    pub exp_params: Vec<i32>,
+    pub exp_params: [i32; 4],
     /// Innate traits.
     pub traits: Vec<Trait>,
     /// Skills learned by level.

@@ -57,6 +57,6 @@ pub struct Enemy {
     pub name: String,
     /// Author note; the conventional home of `<tag:value>` metadata.
     pub note: String,
-    /// Base parameter values (8 entries).
-    pub params: Vec<i32>,
+    /// Base parameter values in order: HP, MP, ATK, DEF, MAT, MDF, AGI, LUK.
+    pub params: [i32; 8],
 }

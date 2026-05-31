@@ -57,7 +57,7 @@ mod tests {
             "name":"Hero","note":"","params":[[1,2,3],[4,5,6]]
         }"#;
         let c: Class = serde_json::from_str(json).unwrap();
-        assert_eq!(c.exp_params, vec![30, 20, 30, 30]);
+        assert_eq!(c.exp_params, [30, 20, 30, 30]);
         assert_eq!(c.learnings.len(), 2);
         assert_eq!(c.learnings[1].skill_id, 9);
         assert_eq!(c.params[1][2], 6);
@@ -111,7 +111,6 @@ mod tests {
         let w: Weapon = serde_json::from_str(json).unwrap();
         assert_eq!(w.etype_id, 1);
         assert_eq!(w.wtype_id, 2);
-        assert_eq!(w.params.len(), 8);
         assert_eq!(w.params[2], 10);
     }
 
@@ -143,7 +142,7 @@ mod tests {
         assert_eq!(e.actions[0].condition_type, 0);
         assert_eq!(e.drop_items[0].kind, 1);
         assert_eq!(e.drop_items[0].denominator, 3);
-        assert_eq!(e.params.len(), 8);
+        assert_eq!(e.params[0], 100);
     }
 
     #[test]

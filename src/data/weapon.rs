@@ -25,8 +25,9 @@ pub struct Weapon {
     pub name: String,
     /// Author note; the conventional home of `<tag:value>` metadata.
     pub note: String,
-    /// Parameter bonuses, one per base parameter (8 entries).
-    pub params: Vec<i32>,
+    /// Parameter bonuses in base-parameter order: HP, MP, ATK, DEF, MAT, MDF,
+    /// AGI, LUK.
+    pub params: [i32; 8],
     /// Buy price.
     pub price: i32,
     /// Weapon type id.
