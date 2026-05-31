@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::{Damage, Effect};
 
 /// A single item entry from `Items.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Item {
     /// Database id (1-based).
     pub id: i32,

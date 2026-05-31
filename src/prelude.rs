@@ -6,6 +6,7 @@
 
 pub use crate::RmmzAssetsPlugin;
 pub use crate::data::{
-    Actor, Armor, Class, Damage, DropItem, Effect, Enemy, EnemyAction, EventCommand, Item,
-    Learning, Skill, State, Trait, Weapon,
+    Actor, Animation, Armor, AudioFile, Class, CommonEvent, Damage, DropItem, Effect, Enemy,
+    EnemyAction, EventCommand, Item, Learning, Map, MapEvent, MapInfo, Skill, State, System, Terms,
+    Tileset, Trait, Troop, Weapon,
 };

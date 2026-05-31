@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::Trait;
 
 /// A single state entry from `States.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct State {
     /// Database id (1-based).
     pub id: i32,
@@ -29,6 +29,8 @@ pub struct State {
     pub message3: String,
     /// Message shown when the state is removed.
     pub message4: String,
+    /// How state messages are shown: 0 none, 1 actor only, 2 enemy only, 3 both.
+    pub message_type: i32,
     /// Minimum duration in turns (with `max_turns`).
     pub min_turns: i32,
     /// SV motion played while afflicted.

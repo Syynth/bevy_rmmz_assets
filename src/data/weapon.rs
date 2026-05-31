@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::data::common::Trait;
 
 /// A single weapon entry from `Weapons.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Weapon {
     /// Database id (1-based).
     pub id: i32,

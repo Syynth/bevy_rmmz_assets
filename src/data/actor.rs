@@ -9,8 +9,8 @@ use crate::data::common::Trait;
 ///
 /// In the file these are stored in a null-padded array (index 0 is `null`); that
 /// padding is handled by the asset layer, not this struct.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Reflect)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Actor {
     /// Database id (1-based).
     pub id: i32,
