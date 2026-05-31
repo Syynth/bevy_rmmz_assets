@@ -78,6 +78,22 @@ pub struct EventCommand {
     pub parameters: Vec<serde_json::Value>,
 }
 
+/// A reference to an audio asset together with its playback parameters.
+///
+/// Used for BGM, BGS, ME, and SE throughout the database (system sounds, map
+/// audio, animation sound timings, …).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Reflect)]
+pub struct AudioFile {
+    /// Audio file name (without directory or extension); empty means "none".
+    pub name: String,
+    /// Stereo pan, -100..=100.
+    pub pan: i32,
+    /// Playback pitch percentage (100 = normal).
+    pub pitch: i32,
+    /// Playback volume percentage (0..=100).
+    pub volume: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Damage, Effect, EventCommand, Trait};
