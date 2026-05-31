@@ -39,14 +39,16 @@ impl<T: TypePath + Send + Sync + 'static> Table<T> {
         self.0.iter().filter_map(Option::as_ref)
     }
 
-    /// Number of slots, including the leading `null` and any gaps.
-    pub fn len(&self) -> usize {
-        self.0.len()
+    /// Number of present (non-`null`) records, ignoring the leading `null` and
+    /// any gaps. For the raw slot count (including padding), use `self.0.len()`.
+    pub fn count(&self) -> usize {
+        self.iter().count()
     }
 
-    /// Whether the table holds no slots at all.
+    /// Whether the table contains no records, ignoring `null` padding. (A table
+    /// holding only the leading `null` reports `true`.)
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.iter().next().is_none()
     }
 }
 
@@ -117,8 +119,18 @@ mod tests {
         assert_eq!(t.get(3).unwrap().name, "C");
         assert!(t.get(4).is_none());
         assert_eq!(t.iter().count(), 2);
-        assert_eq!(t.len(), 4);
+        assert_eq!(t.count(), 2);
+        assert_eq!(t.0.len(), 4); // raw slots, including the null gaps
         assert!(!t.is_empty());
+    }
+
+    #[test]
+    fn empty_table_reports_zero_records() {
+        // The leading null must not be mistaken for a record.
+        let t: ActorsAsset = serde_json::from_str("[null]").unwrap();
+        assert_eq!(t.count(), 0);
+        assert!(t.is_empty());
+        assert_eq!(t.0.len(), 1);
     }
 
     #[test]
