@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration for bevy_rmmz_assets.
+# The repo already enforces rustfmt + `clippy --all-features -D warnings` in CI,
+# so reviews here should focus on design, correctness, and API ergonomics rather
+# than re-flagging lint/formatting nits CI already gates on.
+
+language: en-US
+
+reviews:
+  # More thorough feedback; we want real signal on a young, fast-moving API.
+  profile: assertive
+  # Don't gate merges on CodeRabbit "request changes" — CI is the merge gate.
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  # Keep the feed focused.
+  poem: false
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: >-
+        Rust crate targeting Bevy 0.19. CI enforces rustfmt and
+        `clippy --all-features -D warnings` (a strict profile that denies
+        unwrap/expect/panic/todo/dbg/print and warns on clippy::pedantic), so do
+        NOT report formatting or lints clippy/rustfmt already catch. Focus on:
+        correctness and edge cases; public API design and ergonomics; serde
+        modeling fidelity to the RPG Maker MZ JSON schema (field names, optional
+        vs required, null-padded arrays); Bevy asset/ECS usage correctness;
+        soundness of any unsafe (the crate denies unsafe_code, so unsafe should
+        not appear); and missing or misleading docs on public items. Prefer a
+        few high-value comments over many trivial ones.
+    - path: "docs/decision-log.md"
+      instructions: >-
+        Append-only decision log. Do not suggest rewording or restructuring past
+        entries.
+
+  # Don't review generated or vendored content.
+  path_filters:
+    - "!target/**"
+    - "!Cargo.lock"
+
+chat:
+  auto_reply: true
