@@ -5,4 +5,7 @@
 //! ```
 
 pub use crate::RmmzAssetsPlugin;
-pub use crate::data::{Damage, Effect, EventCommand, Trait};
+pub use crate::data::{
+    Actor, Armor, Class, Damage, DropItem, Effect, Enemy, EnemyAction, EventCommand, Item,
+    Learning, Skill, State, Trait, Weapon,
+};
