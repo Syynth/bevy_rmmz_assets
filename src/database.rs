@@ -1,6 +1,6 @@
 //! [`RmmzDatabase`], the ergonomic cross-table access layer.
 
-use bevy_asset::{Asset, Assets, Handle};
+use bevy_asset::{Asset, AssetServer, Assets, Handle};
 use bevy_ecs::system::SystemParam;
 
 use crate::asset::{
@@ -38,6 +38,7 @@ use crate::data::{
 #[derive(SystemParam)]
 pub struct RmmzDatabase<'w> {
     handles: bevy_ecs::system::Res<'w, RmmzHandles>,
+    asset_server: bevy_ecs::system::Res<'w, AssetServer>,
     actors: bevy_ecs::system::Res<'w, Assets<ActorsAsset>>,
     classes: bevy_ecs::system::Res<'w, Assets<ClassesAsset>>,
     skills: bevy_ecs::system::Res<'w, Assets<SkillsAsset>>,
@@ -54,10 +55,44 @@ pub struct RmmzDatabase<'w> {
     system: bevy_ecs::system::Res<'w, Assets<SystemAsset>>,
 }
 
-/// Returns whether a handle (if any) resolves to a loaded asset. A `None`
-/// handle counts as ready, since nothing was requested.
-fn ready<A: Asset>(handle: Option<&Handle<A>>, assets: &Assets<A>) -> bool {
-    handle.is_none_or(|h| assets.get(h).is_some())
+/// Aggregate load status of the selected database tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseStatus {
+    /// At least one selected table is still loading (and none have failed).
+    Loading,
+    /// Every selected table has loaded successfully.
+    Loaded,
+    /// At least one selected table failed to load (missing file, parse error, …).
+    Failed,
+}
+
+impl DatabaseStatus {
+    /// Combines two statuses, keeping the worst: `Failed` > `Loading` > `Loaded`.
+    fn worse(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Failed, _) | (_, Self::Failed) => Self::Failed,
+            (Self::Loading, _) | (_, Self::Loading) => Self::Loading,
+            _ => Self::Loaded,
+        }
+    }
+}
+
+/// Status of a single (optional) table handle, via the asset server's load
+/// state. A `None` handle counts as `Loaded`, since nothing was requested.
+fn table_status<A: Asset>(server: &AssetServer, handle: Option<&Handle<A>>) -> DatabaseStatus {
+    match handle {
+        None => DatabaseStatus::Loaded,
+        Some(h) => {
+            let state = server.load_state(h.id());
+            if state.is_failed() {
+                DatabaseStatus::Failed
+            } else if state.is_loaded() {
+                DatabaseStatus::Loaded
+            } else {
+                DatabaseStatus::Loading
+            }
+        }
+    }
 }
 
 macro_rules! table_accessors {
@@ -102,24 +137,41 @@ impl RmmzDatabase<'_> {
             .map(|asset| &asset.0)
     }
 
-    /// Whether every table selected for loading has finished loading.
+    /// The aggregate load status across all selected tables.
     ///
-    /// Tables that were not selected do not block readiness.
+    /// Returns [`DatabaseStatus::Failed`] if any selected table failed to load,
+    /// otherwise [`DatabaseStatus::Loading`] while any are still pending,
+    /// otherwise [`DatabaseStatus::Loaded`]. Tables that were not selected for
+    /// loading do not affect the result.
+    pub fn status(&self) -> DatabaseStatus {
+        let s = &self.asset_server;
+        table_status(s, self.handles.actors.as_ref())
+            .worse(table_status(s, self.handles.classes.as_ref()))
+            .worse(table_status(s, self.handles.skills.as_ref()))
+            .worse(table_status(s, self.handles.items.as_ref()))
+            .worse(table_status(s, self.handles.weapons.as_ref()))
+            .worse(table_status(s, self.handles.armors.as_ref()))
+            .worse(table_status(s, self.handles.enemies.as_ref()))
+            .worse(table_status(s, self.handles.states.as_ref()))
+            .worse(table_status(s, self.handles.troops.as_ref()))
+            .worse(table_status(s, self.handles.animations.as_ref()))
+            .worse(table_status(s, self.handles.tilesets.as_ref()))
+            .worse(table_status(s, self.handles.common_events.as_ref()))
+            .worse(table_status(s, self.handles.map_infos.as_ref()))
+            .worse(table_status(s, self.handles.system.as_ref()))
+    }
+
+    /// Whether every selected table has loaded successfully.
+    ///
+    /// Returns `false` while still loading **and** on failure — use
+    /// [`Self::status`] or [`Self::is_failed`] to distinguish the two.
     pub fn is_loaded(&self) -> bool {
-        ready(self.handles.actors.as_ref(), &self.actors)
-            && ready(self.handles.classes.as_ref(), &self.classes)
-            && ready(self.handles.skills.as_ref(), &self.skills)
-            && ready(self.handles.items.as_ref(), &self.items)
-            && ready(self.handles.weapons.as_ref(), &self.weapons)
-            && ready(self.handles.armors.as_ref(), &self.armors)
-            && ready(self.handles.enemies.as_ref(), &self.enemies)
-            && ready(self.handles.states.as_ref(), &self.states)
-            && ready(self.handles.troops.as_ref(), &self.troops)
-            && ready(self.handles.animations.as_ref(), &self.animations)
-            && ready(self.handles.tilesets.as_ref(), &self.tilesets)
-            && ready(self.handles.common_events.as_ref(), &self.common_events)
-            && ready(self.handles.map_infos.as_ref(), &self.map_infos)
-            && ready(self.handles.system.as_ref(), &self.system)
+        self.status() == DatabaseStatus::Loaded
+    }
+
+    /// Whether any selected table failed to load.
+    pub fn is_failed(&self) -> bool {
+        self.status() == DatabaseStatus::Failed
     }
 }
 
@@ -133,39 +185,32 @@ mod tests {
     use bevy_asset::{AssetApp, AssetPlugin};
     use bevy_ecs::prelude::{ResMut, Resource};
 
-    use super::RmmzDatabase;
+    use super::{DatabaseStatus, RmmzDatabase};
     use crate::config::{CoreTable, RmmzConfig};
     use crate::ext::RmmzAppExt;
 
     #[derive(Resource, Default)]
     struct Probe {
-        loaded: bool,
+        status: Option<DatabaseStatus>,
         item1: Option<String>,
         actor_count: usize,
         title: Option<String>,
     }
 
     fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
+        out.status = Some(db.status());
         if db.is_loaded() {
-            out.loaded = true;
             out.item1 = db.item(1).map(|i| i.name.clone());
             out.actor_count = db.actors().map_or(0, crate::asset::ActorsAsset::count);
             out.title = db.system().map(|s| s.game_title.clone());
         }
     }
 
-    #[test]
-    fn database_reads_records_across_tables() {
+    fn build_app(files: &[(&str, &str)], tables: &[CoreTable]) -> App {
         let dir = Dir::default();
-        dir.insert_asset_text(
-            Path::new("data/Items.json"),
-            r#"[null,{"id":1,"name":"Potion"}]"#,
-        );
-        dir.insert_asset_text(
-            Path::new("data/Actors.json"),
-            r#"[null,{"id":1,"name":"Harold"},{"id":2,"name":"Therese"}]"#,
-        );
-        dir.insert_asset_text(Path::new("data/System.json"), r#"{"gameTitle":"Demo"}"#);
+        for (path, contents) in files {
+            dir.insert_asset_text(Path::new(path), contents);
+        }
         let reader_dir = dir.clone();
 
         let mut app = App::new();
@@ -185,26 +230,50 @@ mod tests {
             },
         ))
         .init_resource::<Probe>()
-        .add_rmmz_with(RmmzConfig::default().with_tables([
-            CoreTable::Items,
-            CoreTable::Actors,
-            CoreTable::System,
-        ]))
+        .add_rmmz_with(RmmzConfig::default().with_tables(tables.iter().copied()))
         .add_systems(Update, probe);
+        app
+    }
 
-        let mut done = false;
+    /// Pumps the app until the probed status is no longer `Loading`.
+    fn run_until_settled(app: &mut App) -> DatabaseStatus {
         for _ in 0..1000 {
             app.update();
-            if app.world().resource::<Probe>().loaded {
-                done = true;
-                break;
+            if let Some(status) = app.world().resource::<Probe>().status
+                && status != DatabaseStatus::Loading
+            {
+                return status;
             }
         }
-        assert!(done, "database never reported loaded");
+        DatabaseStatus::Loading
+    }
+
+    #[test]
+    fn database_reads_records_across_tables() {
+        let mut app = build_app(
+            &[
+                ("data/Items.json", r#"[null,{"id":1,"name":"Potion"}]"#),
+                (
+                    "data/Actors.json",
+                    r#"[null,{"id":1,"name":"Harold"},{"id":2,"name":"Therese"}]"#,
+                ),
+                ("data/System.json", r#"{"gameTitle":"Demo"}"#),
+            ],
+            &[CoreTable::Items, CoreTable::Actors, CoreTable::System],
+        );
+
+        assert_eq!(run_until_settled(&mut app), DatabaseStatus::Loaded);
 
         let probe = app.world().resource::<Probe>();
         assert_eq!(probe.item1.as_deref(), Some("Potion"));
         assert_eq!(probe.actor_count, 2);
         assert_eq!(probe.title.as_deref(), Some("Demo"));
+    }
+
+    #[test]
+    fn missing_file_reports_failed_not_stuck_loading() {
+        // Items is selected but no Items.json exists in the source.
+        let mut app = build_app(&[], &[CoreTable::Items]);
+        assert_eq!(run_until_settled(&mut app), DatabaseStatus::Failed);
     }
 }

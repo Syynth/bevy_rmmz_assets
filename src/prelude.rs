@@ -17,6 +17,6 @@ pub use crate::data::{
     EnemyAction, EventCommand, Item, Learning, Map, MapEvent, MapInfo, Skill, State, System, Terms,
     Tileset, Trait, Troop, Weapon,
 };
-pub use crate::database::RmmzDatabase;
+pub use crate::database::{DatabaseStatus, RmmzDatabase};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
