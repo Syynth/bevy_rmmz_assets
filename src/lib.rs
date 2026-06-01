@@ -27,7 +27,9 @@
 //! [Bevy]: https://bevyengine.org
 
 pub mod asset;
+pub mod config;
 pub mod data;
+pub mod ext;
 pub mod loader;
 
 mod plugin;

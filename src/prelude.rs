@@ -10,10 +10,12 @@ pub use crate::asset::{
     ItemsAsset, MapAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, Table,
     TilesetsAsset, TroopsAsset, WeaponsAsset,
 };
+pub use crate::config::{CoreTable, RmmzConfig, RmmzHandles, TableSelection};
 pub use crate::data::HasNote;
 pub use crate::data::{
     Actor, Animation, Armor, AudioFile, Class, CommonEvent, Damage, DropItem, Effect, Enemy,
     EnemyAction, EventCommand, Item, Learning, Map, MapEvent, MapInfo, Skill, State, System, Terms,
     Tileset, Trait, Troop, Weapon,
 };
+pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
