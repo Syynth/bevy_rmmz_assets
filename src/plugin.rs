@@ -10,6 +10,7 @@ use crate::asset::{
     TroopsAsset, WeaponsAsset,
 };
 use crate::loader::RmmzJsonLoader;
+use crate::notes::NoteRegistry;
 
 /// Wires RPG Maker MZ database loading into a Bevy [`App`].
 ///
@@ -24,6 +25,8 @@ pub struct RmmzAssetsPlugin;
 
 impl Plugin for RmmzAssetsPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<NoteRegistry>();
+
         register::<ActorsAsset>(app);
         register::<ClassesAsset>(app);
         register::<SkillsAsset>(app);

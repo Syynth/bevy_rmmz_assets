@@ -20,4 +20,4 @@ pub use crate::data::{
 pub use crate::database::{DatabaseStatus, RmmzDatabase};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
-pub use crate::notes::{NoteTag, NoteTokens};
+pub use crate::notes::{NoteParser, NoteRegistry, NoteTag, NoteTokens, ParsedNote};

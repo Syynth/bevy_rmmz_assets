@@ -10,9 +10,10 @@ use crate::asset::{
 };
 use crate::config::RmmzHandles;
 use crate::data::{
-    Actor, Animation, Armor, Class, CommonEvent, Enemy, Item, MapInfo, Skill, State, System,
-    Tileset, Troop, Weapon,
+    Actor, Animation, Armor, Class, CommonEvent, Enemy, HasNote, Item, MapInfo, Skill, State,
+    System, Tileset, Troop, Weapon,
 };
+use crate::notes::{NoteRegistry, NoteTokens, ParsedNote};
 
 /// A [`SystemParam`] giving ergonomic, id-based read access to the loaded
 /// RPG Maker MZ database.
@@ -39,6 +40,7 @@ use crate::data::{
 pub struct RmmzDatabase<'w> {
     handles: bevy_ecs::system::Res<'w, RmmzHandles>,
     asset_server: bevy_ecs::system::Res<'w, AssetServer>,
+    note_registry: bevy_ecs::system::Res<'w, NoteRegistry>,
     actors: bevy_ecs::system::Res<'w, Assets<ActorsAsset>>,
     classes: bevy_ecs::system::Res<'w, Assets<ClassesAsset>>,
     skills: bevy_ecs::system::Res<'w, Assets<SkillsAsset>>,
@@ -173,6 +175,24 @@ impl RmmzDatabase<'_> {
     pub fn is_failed(&self) -> bool {
         self.status() == DatabaseStatus::Failed
     }
+
+    /// Parses the metadata of type `T` from `record`'s note field, using the
+    /// registered [`NoteParser`](crate::notes::NoteParser).
+    ///
+    /// Returns `None` if no parser produces `T` or the note has no such tag.
+    /// Parsing happens on demand, so the result always reflects the current
+    /// (possibly hot-reloaded) note text.
+    pub fn note_meta<T: Send + Sync + 'static>(&self, record: &impl HasNote) -> Option<T> {
+        let tokens = NoteTokens::parse(record.note());
+        self.note_registry.parse::<T>(&tokens)
+    }
+
+    /// Runs every registered parser against `record`'s note, returning all the
+    /// metadata it carries.
+    pub fn parsed_note(&self, record: &impl HasNote) -> ParsedNote {
+        let tokens = NoteTokens::parse(record.note());
+        self.note_registry.parse_all(&tokens)
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +208,18 @@ mod tests {
     use super::{DatabaseStatus, RmmzDatabase};
     use crate::config::{CoreTable, RmmzConfig};
     use crate::ext::RmmzAppExt;
+    use crate::notes::{NoteParser, NoteTokens};
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Element(String);
+
+    struct ElementParser;
+    impl NoteParser for ElementParser {
+        type Output = Element;
+        fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
+            tokens.value("element").map(|v| Element(v.to_owned()))
+        }
+    }
 
     #[derive(Resource, Default)]
     struct Probe {
@@ -195,6 +227,7 @@ mod tests {
         item1: Option<String>,
         actor_count: usize,
         title: Option<String>,
+        element: Option<String>,
     }
 
     fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
@@ -203,6 +236,10 @@ mod tests {
             out.item1 = db.item(1).map(|i| i.name.clone());
             out.actor_count = db.actors().map_or(0, crate::asset::ActorsAsset::count);
             out.title = db.system().map(|s| s.game_title.clone());
+            out.element = db
+                .item(1)
+                .and_then(|i| db.note_meta::<Element>(i))
+                .map(|e| e.0);
         }
     }
 
@@ -275,5 +312,23 @@ mod tests {
         // Items is selected but no Items.json exists in the source.
         let mut app = build_app(&[], &[CoreTable::Items]);
         assert_eq!(run_until_settled(&mut app), DatabaseStatus::Failed);
+    }
+
+    #[test]
+    fn note_meta_reads_registered_parser() {
+        let mut app = build_app(
+            &[(
+                "data/Items.json",
+                r#"[null,{"id":1,"name":"Ember","note":"<element:fire>"}]"#,
+            )],
+            &[CoreTable::Items],
+        );
+        app.register_note_parser(ElementParser);
+
+        assert_eq!(run_until_settled(&mut app), DatabaseStatus::Loaded);
+        assert_eq!(
+            app.world().resource::<Probe>().element.as_deref(),
+            Some("fire")
+        );
     }
 }
