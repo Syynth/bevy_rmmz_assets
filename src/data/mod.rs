@@ -38,7 +38,7 @@ pub use map::{
     MoveRoute,
 };
 pub use map_info::MapInfo;
-pub use note::HasNote;
+pub use note::{HasId, HasNote};
 pub use skill::Skill;
 pub use state::State;
 pub use system::{System, Terms};

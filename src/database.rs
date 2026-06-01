@@ -10,9 +10,10 @@ use crate::asset::{
 };
 use crate::config::RmmzHandles;
 use crate::data::{
-    Actor, Animation, Armor, Class, CommonEvent, Enemy, Item, MapInfo, Skill, State, System,
+    Actor, Animation, Armor, Class, CommonEvent, Enemy, HasId, Item, MapInfo, Skill, State, System,
     Tileset, Troop, Weapon,
 };
+use crate::notes::{ParsedNote, RmmzNoteCache};
 
 /// A [`SystemParam`] giving ergonomic, id-based read access to the loaded
 /// RPG Maker MZ database.
@@ -39,6 +40,7 @@ use crate::data::{
 pub struct RmmzDatabase<'w> {
     handles: bevy_ecs::system::Res<'w, RmmzHandles>,
     asset_server: bevy_ecs::system::Res<'w, AssetServer>,
+    note_cache: bevy_ecs::system::Res<'w, RmmzNoteCache>,
     actors: bevy_ecs::system::Res<'w, Assets<ActorsAsset>>,
     classes: bevy_ecs::system::Res<'w, Assets<ClassesAsset>>,
     skills: bevy_ecs::system::Res<'w, Assets<SkillsAsset>>,
@@ -173,6 +175,27 @@ impl RmmzDatabase<'_> {
     pub fn is_failed(&self) -> bool {
         self.status() == DatabaseStatus::Failed
     }
+
+    /// The metadata of type `O` parsed from `record`'s note, or `None`.
+    ///
+    /// This is a cache lookup — the note was parsed once when the table loaded,
+    /// not on this call — so it is cheap to call in hot loops. Requires a
+    /// [`NoteParser`](crate::notes::NoteParser) producing `O` to be registered.
+    pub fn note_meta<O, R>(&self, record: &R) -> Option<&O>
+    where
+        O: Send + Sync + 'static,
+        R: HasId + 'static,
+    {
+        self.note_cache.get::<R>(record.id())?.get::<O>()
+    }
+
+    /// All cached note metadata for `record`, or `None` if it carries none.
+    pub fn parsed_note<R>(&self, record: &R) -> Option<&ParsedNote>
+    where
+        R: HasId + 'static,
+    {
+        self.note_cache.get::<R>(record.id())
+    }
 }
 
 #[cfg(test)]
@@ -184,10 +207,23 @@ mod tests {
     use bevy_asset::io::{AssetSourceBuilder, AssetSourceId};
     use bevy_asset::{AssetApp, AssetPlugin};
     use bevy_ecs::prelude::{ResMut, Resource};
+    use serde::{Deserialize, Serialize};
 
     use super::{DatabaseStatus, RmmzDatabase};
     use crate::config::{CoreTable, RmmzConfig};
     use crate::ext::RmmzAppExt;
+    use crate::notes::{NoteParser, NoteTokens};
+
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct Element(String);
+
+    struct ElementParser;
+    impl NoteParser for ElementParser {
+        type Output = Element;
+        fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
+            tokens.value("element").map(|v| Element(v.to_owned()))
+        }
+    }
 
     #[derive(Resource, Default)]
     struct Probe {
@@ -195,6 +231,7 @@ mod tests {
         item1: Option<String>,
         actor_count: usize,
         title: Option<String>,
+        element: Option<String>,
     }
 
     fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
@@ -203,6 +240,10 @@ mod tests {
             out.item1 = db.item(1).map(|i| i.name.clone());
             out.actor_count = db.actors().map_or(0, crate::asset::ActorsAsset::count);
             out.title = db.system().map(|s| s.game_title.clone());
+            out.element = db
+                .item(1)
+                .and_then(|i| db.note_meta::<Element, _>(i))
+                .map(|e| e.0.clone());
         }
     }
 
@@ -275,5 +316,29 @@ mod tests {
         // Items is selected but no Items.json exists in the source.
         let mut app = build_app(&[], &[CoreTable::Items]);
         assert_eq!(run_until_settled(&mut app), DatabaseStatus::Failed);
+    }
+
+    #[test]
+    fn note_metadata_is_parsed_once_and_cached() {
+        let mut app = build_app(
+            &[(
+                "data/Items.json",
+                r#"[null,{"id":1,"name":"Ember","note":"<element:fire>"}]"#,
+            )],
+            &[CoreTable::Items],
+        );
+        app.register_note_parser(ElementParser);
+
+        // Pump until the cache system has parsed the note (a frame or two after
+        // the asset loads).
+        let mut element = None;
+        for _ in 0..1000 {
+            app.update();
+            element = app.world().resource::<Probe>().element.clone();
+            if element.is_some() {
+                break;
+            }
+        }
+        assert_eq!(element.as_deref(), Some("fire"));
     }
 }

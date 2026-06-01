@@ -1,6 +1,6 @@
 //! The crate's Bevy plugin.
 
-use bevy_app::{App, Plugin};
+use bevy_app::{App, Plugin, Update};
 use bevy_asset::{Asset, AssetApp};
 use serde::de::DeserializeOwned;
 
@@ -9,13 +9,15 @@ use crate::asset::{
     ItemsAsset, MapAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
     TroopsAsset, WeaponsAsset,
 };
+use crate::data::{Actor, Armor, Class, Enemy, Item, Skill, State, Tileset, Weapon};
 use crate::loader::RmmzJsonLoader;
+use crate::notes::{NoteRegistry, RmmzNoteCache, cache_table_notes};
 
 /// Wires RPG Maker MZ database loading into a Bevy [`App`].
 ///
 /// Registers every database asset type ([`ActorsAsset`], [`ItemsAsset`], …,
-/// [`SystemAsset`], [`MapAsset`]) together with a JSON loader for each, so they
-/// can be loaded with `asset_server.load::<ActorsAsset>("Actors.json")`.
+/// [`SystemAsset`], [`MapAsset`]) together with a JSON loader for each, plus the
+/// note-parser registry and the parse-once note cache.
 ///
 /// Requires Bevy's `AssetPlugin` (included in `DefaultPlugins`) to be added
 /// **before** this plugin.
@@ -39,6 +41,26 @@ impl Plugin for RmmzAssetsPlugin {
         register::<MapInfosAsset>(app);
         register::<SystemAsset>(app);
         register::<MapAsset>(app);
+
+        app.init_resource::<NoteRegistry>()
+            .init_resource::<RmmzNoteCache>();
+
+        // Parse each note-bearing table's notes once on load (and on reload),
+        // caching the typed metadata.
+        app.add_systems(
+            Update,
+            (
+                cache_table_notes::<Actor>,
+                cache_table_notes::<Class>,
+                cache_table_notes::<Skill>,
+                cache_table_notes::<Item>,
+                cache_table_notes::<Weapon>,
+                cache_table_notes::<Armor>,
+                cache_table_notes::<Enemy>,
+                cache_table_notes::<State>,
+                cache_table_notes::<Tileset>,
+            ),
+        );
     }
 }
 

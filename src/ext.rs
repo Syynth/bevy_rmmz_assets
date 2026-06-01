@@ -6,6 +6,7 @@ use bevy_ecs::prelude::{Commands, Res};
 
 use crate::RmmzAssetsPlugin;
 use crate::config::{CoreTable, RmmzConfig, RmmzHandles};
+use crate::notes::{NoteParser, NoteRegistry};
 
 /// Convenience methods on [`App`] for setting up RPG Maker MZ loading.
 ///
@@ -21,6 +22,11 @@ pub trait RmmzAppExt {
 
     /// Registers everything and loads according to `config`.
     fn add_rmmz_with(&mut self, config: RmmzConfig) -> &mut Self;
+
+    /// Registers a [`NoteParser`]. Its output becomes available through the
+    /// cached note-metadata accessors. Register parsers before loading so the
+    /// note cache includes them.
+    fn register_note_parser<P: NoteParser>(&mut self, parser: P) -> &mut Self;
 }
 
 impl RmmzAppExt for App {
@@ -32,6 +38,13 @@ impl RmmzAppExt for App {
         self.add_plugins(RmmzAssetsPlugin)
             .insert_resource(config)
             .add_systems(Startup, load_core_tables)
+    }
+
+    fn register_note_parser<P: NoteParser>(&mut self, parser: P) -> &mut Self {
+        self.world_mut()
+            .get_resource_or_init::<NoteRegistry>()
+            .register(parser);
+        self
     }
 }
 
