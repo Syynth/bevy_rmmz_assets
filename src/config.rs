@@ -103,8 +103,54 @@ impl RmmzConfig {
     }
 
     /// Builds the asset path for a database `file` under [`Self::data_path`].
+    ///
+    /// Tolerates a trailing slash on `data_path`, and treats an empty
+    /// `data_path` as "load from the asset source root".
     pub(crate) fn path(&self, file: &str) -> String {
-        format!("{}/{file}", self.data_path)
+        let base = self.data_path.trim_end_matches('/');
+        if base.is_empty() {
+            file.to_owned()
+        } else {
+            format!("{base}/{file}")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoreTable, RmmzConfig};
+
+    #[test]
+    fn path_joins_without_double_slashes() {
+        assert_eq!(
+            RmmzConfig::new("data").path("Actors.json"),
+            "data/Actors.json"
+        );
+        assert_eq!(
+            RmmzConfig::new("data/").path("Actors.json"),
+            "data/Actors.json"
+        );
+        assert_eq!(
+            RmmzConfig::new("nested/dir/").path("System.json"),
+            "nested/dir/System.json"
+        );
+    }
+
+    #[test]
+    fn empty_data_path_loads_from_root() {
+        assert_eq!(RmmzConfig::new("").path("Items.json"), "Items.json");
+    }
+
+    #[test]
+    fn selection_controls_which_tables_load() {
+        let all = RmmzConfig::default();
+        assert!(all.loads(CoreTable::Actors));
+        assert!(all.loads(CoreTable::System));
+
+        let only = RmmzConfig::default().with_tables([CoreTable::Items, CoreTable::System]);
+        assert!(only.loads(CoreTable::Items));
+        assert!(only.loads(CoreTable::System));
+        assert!(!only.loads(CoreTable::Actors));
     }
 }
 
