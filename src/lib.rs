@@ -33,6 +33,8 @@ pub mod database;
 pub mod ext;
 pub mod loader;
 pub mod notes;
+#[cfg(feature = "process")]
+pub mod processing;
 
 mod plugin;
 
