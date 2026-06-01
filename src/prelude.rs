@@ -11,16 +11,16 @@ pub use crate::asset::{
     TilesetsAsset, TroopsAsset, WeaponsAsset,
 };
 pub use crate::config::{CoreTable, RmmzConfig, RmmzHandles, TableSelection};
-pub use crate::data::HasNote;
 pub use crate::data::{
     Actor, Animation, Armor, AudioFile, Class, CommonEvent, Damage, DropItem, Effect, Enemy,
     EnemyAction, EventCommand, Item, Learning, Map, MapEvent, MapInfo, Skill, State, System, Terms,
     Tileset, Trait, Troop, Weapon,
 };
+pub use crate::data::{HasId, HasNote};
 pub use crate::database::{DatabaseStatus, RmmzDatabase};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
-pub use crate::notes::{NoteTag, NoteTokens};
+pub use crate::notes::{NoteParser, NoteRegistry, NoteTag, NoteTokens, ParsedNote, RmmzNoteCache};
 #[cfg(feature = "process")]
 pub use crate::processing::{
     RmmzBinError, RmmzBinLoader, RmmzBinProcessor, RmmzBinSaver, RmmzProcessingExt,
