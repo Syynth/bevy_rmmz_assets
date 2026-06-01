@@ -32,6 +32,7 @@ pub mod data;
 pub mod database;
 pub mod ext;
 pub mod loader;
+pub mod notes;
 
 mod plugin;
 
