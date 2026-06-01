@@ -29,6 +29,7 @@
 pub mod asset;
 pub mod config;
 pub mod data;
+pub mod database;
 pub mod ext;
 pub mod loader;
 
