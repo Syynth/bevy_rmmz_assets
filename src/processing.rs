@@ -224,17 +224,27 @@ fn register<A: RmmzAsset + Serialize + DeserializeOwned>(app: &mut App) {
     app.register_asset_processor::<RmmzBinProcessor<A>>(processor);
 }
 
-/// Registers a binary loader + note-baking processor for a note-bearing table.
+/// Registers a binary loader + processor for a note-bearing table.
+///
+/// With parsers registered, the processor bakes their output. With **no**
+/// parsers (empty baker), it falls back to data-only processing so the runtime
+/// parses live notes instead of loading empty baked metadata — otherwise a
+/// processed build would silently lose all note metadata.
 fn register_baked<R>(app: &mut App, baker: &NoteBaker)
 where
     R: HasNote + HasId + TypePath + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     app.register_asset_loader(RmmzBinLoader::<Table<R>>::default());
-    let processor = RmmzBinNoteProcessor::<R>::new(
-        NoteBakingTransformer::<R>::new(baker.clone()),
-        RmmzBinSaver::<Table<R>>::default(),
-    );
-    app.register_asset_processor::<RmmzBinNoteProcessor<R>>(processor);
+    if baker.is_empty() {
+        let processor: RmmzBinProcessor<Table<R>> = RmmzBinSaver::<Table<R>>::default().into();
+        app.register_asset_processor::<RmmzBinProcessor<Table<R>>>(processor);
+    } else {
+        let processor = RmmzBinNoteProcessor::<R>::new(
+            NoteBakingTransformer::<R>::new(baker.clone()),
+            RmmzBinSaver::<Table<R>>::default(),
+        );
+        app.register_asset_processor::<RmmzBinNoteProcessor<R>>(processor);
+    }
 }
 
 #[cfg(test)]
@@ -339,6 +349,7 @@ mod tests {
         struct ElementParser;
         impl NoteParser for ElementParser {
             type Output = Element;
+            const TAG: &'static str = "element";
             fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
                 tokens.value("element").map(|v| Element(v.to_owned()))
             }

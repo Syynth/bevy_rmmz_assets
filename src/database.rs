@@ -220,6 +220,7 @@ mod tests {
     struct ElementParser;
     impl NoteParser for ElementParser {
         type Output = Element;
+        const TAG: &'static str = "element";
         fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
             tokens.value("element").map(|v| Element(v.to_owned()))
         }

@@ -25,6 +25,13 @@ pub trait NoteParser: Send + Sync + 'static {
     /// baked into the processed binary.
     type Output: Serialize + DeserializeOwned + Send + Sync + 'static;
 
+    /// A stable, unique tag identifying this metadata in baked assets.
+    ///
+    /// It is written into processed binaries and matched on load, so it must be
+    /// stable across builds (do **not** use `type_name`, which can change with
+    /// the toolchain or a type rename) and unique among registered parsers.
+    const TAG: &'static str;
+
     /// Parses the tokens into the output type, or `None` if the note carries no
     /// such metadata.
     fn parse(&self, tokens: &NoteTokens) -> Option<Self::Output>;
@@ -54,7 +61,7 @@ impl NoteRegistry {
     /// [`RmmzAppExt::register_note_parser`](crate::ext::RmmzAppExt::register_note_parser).
     pub fn register<P: NoteParser>(&mut self, parser: P) {
         let type_id = TypeId::of::<P::Output>();
-        let tag = core::any::type_name::<P::Output>().to_owned();
+        let tag = P::TAG.to_owned();
         let parser = Arc::new(parser);
 
         let parse = Arc::clone(&parser);
@@ -115,12 +122,16 @@ impl NoteRegistry {
     }
 
     /// Runs every parser and serializes the matches into `(type tag, bytes)`
-    /// pairs for baking into a processed asset.
+    /// pairs for baking into a processed asset. Output is sorted by tag so baked
+    /// assets are reproducible regardless of registration order.
     pub fn bake(&self, tokens: &NoteTokens) -> Vec<(String, Vec<u8>)> {
-        self.bakers
+        let mut baked: Vec<(String, Vec<u8>)> = self
+            .bakers
             .values()
             .filter_map(|bake| bake(tokens))
-            .collect()
+            .collect();
+        baked.sort_by(|a, b| a.0.cmp(&b.0));
+        baked
     }
 
     /// Reconstructs a [`ParsedNote`] from previously [`baked`](Self::bake)
@@ -155,9 +166,18 @@ pub struct NoteBaker {
 }
 
 impl NoteBaker {
-    /// Bakes every matching parser's output for `tokens` into `(tag, bytes)`.
+    /// Whether any parsers were captured (none ⇒ baking would erase metadata).
+    pub fn is_empty(&self) -> bool {
+        self.bakers.is_empty()
+    }
+
+    /// Bakes every matching parser's output for `tokens` into `(tag, bytes)`,
+    /// sorted by tag for reproducible output.
     pub fn bake(&self, tokens: &NoteTokens) -> Vec<(String, Vec<u8>)> {
-        self.bakers.iter().filter_map(|bake| bake(tokens)).collect()
+        let mut baked: Vec<(String, Vec<u8>)> =
+            self.bakers.iter().filter_map(|bake| bake(tokens)).collect();
+        baked.sort_by(|a, b| a.0.cmp(&b.0));
+        baked
     }
 }
 
@@ -203,6 +223,7 @@ mod tests {
     struct ElementParser;
     impl NoteParser for ElementParser {
         type Output = Element;
+        const TAG: &'static str = "element";
         fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
             tokens.value("element").map(|v| Element(v.to_owned()))
         }
@@ -214,6 +235,7 @@ mod tests {
     struct BossParser;
     impl NoteParser for BossParser {
         type Output = Boss;
+        const TAG: &'static str = "boss";
         fn parse(&self, tokens: &NoteTokens) -> Option<Boss> {
             tokens.has_flag("boss").then_some(Boss)
         }
