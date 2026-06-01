@@ -21,3 +21,7 @@ pub use crate::database::{DatabaseStatus, RmmzDatabase};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
 pub use crate::notes::{NoteTag, NoteTokens};
+#[cfg(feature = "process")]
+pub use crate::processing::{
+    RmmzBinError, RmmzBinLoader, RmmzBinProcessor, RmmzBinSaver, RmmzProcessingExt,
+};
