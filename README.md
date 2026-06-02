@@ -74,11 +74,16 @@ use bevy_rmmz_assets::prelude::*;
 //   app.enable_rmmz_maps(MapLoad::Eager);     // load all maps from MapInfos
 //   app.enable_rmmz_maps(MapLoad::OnDemand);  // load on request
 
-fn use_maps(db: RmmzDatabase, mut maps: ResMut<RmmzMaps>) {
-    maps.request(1);                 // (OnDemand) ask for Map001.json
+// Request maps in one system (RmmzDatabase reads RmmzMaps, so requesting —
+// which needs &mut RmmzMaps — must be a separate system):
+fn request_maps(mut maps: ResMut<RmmzMaps>) {
+    maps.request(1); // (OnDemand) ask for Map001.json
+}
+
+// Read maps and their note metadata in another:
+fn use_maps(db: RmmzDatabase) {
     if let Some(map) = db.map(1) {
         let _ = &map.display_name;
-        // map / map-event note metadata:
         // db.map_note::<Biome>(1);
         // db.map_event_note::<Chest>(1, event_id);
     }

@@ -133,34 +133,42 @@ pub(crate) fn cache_map_notes(
     registry: Res<NoteRegistry>,
     mut cache: ResMut<RmmzMapNotes>,
 ) {
-    let dirty = events.read().any(|event| {
-        matches!(
-            event,
-            AssetEvent::Added { .. }
-                | AssetEvent::Modified { .. }
-                | AssetEvent::LoadedWithDependencies { .. }
-        )
-    });
-    if !dirty {
-        return;
-    }
+    for event in events.read() {
+        let (asset_id, removed) = match event {
+            AssetEvent::Added { id }
+            | AssetEvent::Modified { id }
+            | AssetEvent::LoadedWithDependencies { id } => (*id, false),
+            AssetEvent::Removed { id } | AssetEvent::Unused { id } => (*id, true),
+        };
 
-    cache.maps.clear();
-    cache.events.clear();
-    for (&id, handle) in &maps.handles {
-        let Some(asset) = assets.get(handle) else {
+        // Which map does this asset belong to?
+        let Some(map_id) = maps
+            .handles
+            .iter()
+            .find_map(|(id, handle)| (handle.id() == asset_id).then_some(*id))
+        else {
+            continue;
+        };
+
+        // Drop this map's stale entries, then re-cache just this map (not all).
+        cache.maps.remove(&map_id);
+        cache.events.retain(|(m, _), _| *m != map_id);
+        if removed {
+            continue;
+        }
+        let Some(asset) = assets.get(asset_id) else {
             continue;
         };
         let map = &asset.0;
 
         let parsed = registry.parse_all(&NoteTokens::parse(map.note()));
         if !parsed.is_empty() {
-            cache.maps.insert(id, parsed);
+            cache.maps.insert(map_id, parsed);
         }
         for event in map.events.iter().flatten() {
             let parsed = registry.parse_all(&NoteTokens::parse(event.note()));
             if !parsed.is_empty() {
-                cache.events.insert((id, event.id), parsed);
+                cache.events.insert((map_id, event.id), parsed);
             }
         }
     }
