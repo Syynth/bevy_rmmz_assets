@@ -11,17 +11,21 @@ use crate::asset::{
     TroopsAsset, WeaponsAsset,
 };
 use crate::config::RmmzRegistry;
-use crate::data::{Actor, Armor, Class, Enemy, Item, Skill, State, Tileset, Weapon};
 use crate::database::{RmmzLoadStatus, load_status_unsettled, track_load_status};
 use crate::loader::RmmzJsonLoader;
-use crate::notes::{NoteRegistry, RmmzNoteCache, cache_table_notes};
+use crate::notes::{NoteRegistry, RmmzNoteCache};
 use crate::snapshot::RmmzAssets;
 
 /// Wires RPG Maker MZ database loading into a Bevy [`App`].
 ///
 /// Registers every database asset type ([`ActorsAsset`], [`ItemsAsset`], …,
 /// [`SystemAsset`], [`MapAsset`]) together with a JSON loader for each, plus the
-/// note-parser registry and the parse-once note cache.
+/// note-parser registry and note-cache *resources*.
+///
+/// The per-table note-cache *systems* are attached when note-bearing tables are
+/// registered through the registration-driven path (e.g.
+/// [`RmmzAppExt::add_rmmz_with`](crate::ext::RmmzAppExt::add_rmmz_with)), not by
+/// this plugin alone.
 ///
 /// Requires Bevy's `AssetPlugin` (included in `DefaultPlugins`) to be added
 /// **before** this plugin.
@@ -57,22 +61,9 @@ impl Plugin for RmmzAssetsPlugin {
         // run condition stops the tracker from running at all once settled.
         app.add_systems(Update, track_load_status.run_if(load_status_unsettled));
 
-        // Parse each note-bearing table's notes once on load (and on reload),
-        // caching the typed metadata.
-        app.add_systems(
-            Update,
-            (
-                cache_table_notes::<Actor>,
-                cache_table_notes::<Class>,
-                cache_table_notes::<Skill>,
-                cache_table_notes::<Item>,
-                cache_table_notes::<Weapon>,
-                cache_table_notes::<Armor>,
-                cache_table_notes::<Enemy>,
-                cache_table_notes::<State>,
-                cache_table_notes::<Tileset>,
-            ),
-        );
+        // Note-cache systems are wired per note-bearing table at registration time
+        // (see `ext::register_builtins` / `register_rmmz_note_table`), so built-in
+        // and custom tables share one path.
     }
 }
 

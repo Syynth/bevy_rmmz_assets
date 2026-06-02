@@ -3,17 +3,18 @@
 use bevy_app::{App, Startup, Update};
 use bevy_asset::{AssetApp, AssetServer};
 use bevy_ecs::prelude::{Res, ResMut};
+use bevy_reflect::TypePath;
 
 use crate::RmmzAssetsPlugin;
-use crate::asset::{
-    ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
-    ItemsAsset, MapInfosAsset, RmmzAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
-    TroopsAsset, WeaponsAsset,
-};
+use crate::asset::{RmmzAsset, SystemAsset, Table};
 use crate::config::{CoreTable, RmmzConfig, RmmzRegistry};
+use crate::data::{
+    Actor, Animation, Armor, Class, CommonEvent, Enemy, HasId, HasNote, Item, MapInfo, Skill,
+    State, Tileset, Troop, Weapon,
+};
 use crate::database::RmmzFetch;
 use crate::loader::RmmzJsonLoader;
-use crate::notes::{NoteParser, NoteRegistry};
+use crate::notes::{NoteParser, NoteRegistry, cache_table_notes};
 use crate::snapshot::snapshot_asset;
 
 /// Convenience methods on [`App`] for setting up RPG Maker MZ loading.
@@ -62,12 +63,9 @@ impl RmmzAppExt for App {
     fn add_rmmz_with(&mut self, config: RmmzConfig) -> &mut Self {
         self.add_plugins(RmmzAssetsPlugin);
 
-        // Register the selected built-in tables into the (plugin-initialized)
-        // registry, then load everything registered at startup.
-        {
-            let mut registry = self.world_mut().get_resource_or_init::<RmmzRegistry>();
-            register_builtins(&mut registry, &config);
-        }
+        // Register the selected built-in tables (registry entries + note-cache
+        // systems for the note-bearing ones), then load everything at startup.
+        register_builtins(self, &config);
         self.insert_resource(config)
             .add_systems(Startup, load_registered);
 
@@ -117,51 +115,77 @@ impl RmmzAppExt for App {
     }
 }
 
-/// Registers the selected built-in tables into the registry (at app-build time).
-/// Files resolve under [`RmmzConfig::data_path`] when loaded.
-fn register_builtins(registry: &mut RmmzRegistry, config: &RmmzConfig) {
+/// Registers the selected built-in tables (at app-build time): a registry entry
+/// for each, plus a note-cache system for the note-bearing ones. Files resolve
+/// under [`RmmzConfig::data_path`] when loaded.
+fn register_builtins(app: &mut App, config: &RmmzConfig) {
     if config.loads(CoreTable::Actors) {
-        registry.register::<ActorsAsset>("Actors.json");
+        note_table::<Actor>(app, "Actors.json");
     }
     if config.loads(CoreTable::Classes) {
-        registry.register::<ClassesAsset>("Classes.json");
+        note_table::<Class>(app, "Classes.json");
     }
     if config.loads(CoreTable::Skills) {
-        registry.register::<SkillsAsset>("Skills.json");
+        note_table::<Skill>(app, "Skills.json");
     }
     if config.loads(CoreTable::Items) {
-        registry.register::<ItemsAsset>("Items.json");
+        note_table::<Item>(app, "Items.json");
     }
     if config.loads(CoreTable::Weapons) {
-        registry.register::<WeaponsAsset>("Weapons.json");
+        note_table::<Weapon>(app, "Weapons.json");
     }
     if config.loads(CoreTable::Armors) {
-        registry.register::<ArmorsAsset>("Armors.json");
+        note_table::<Armor>(app, "Armors.json");
     }
     if config.loads(CoreTable::Enemies) {
-        registry.register::<EnemiesAsset>("Enemies.json");
+        note_table::<Enemy>(app, "Enemies.json");
     }
     if config.loads(CoreTable::States) {
-        registry.register::<StatesAsset>("States.json");
-    }
-    if config.loads(CoreTable::Troops) {
-        registry.register::<TroopsAsset>("Troops.json");
-    }
-    if config.loads(CoreTable::Animations) {
-        registry.register::<AnimationsAsset>("Animations.json");
+        note_table::<State>(app, "States.json");
     }
     if config.loads(CoreTable::Tilesets) {
-        registry.register::<TilesetsAsset>("Tilesets.json");
+        note_table::<Tileset>(app, "Tilesets.json");
+    }
+    if config.loads(CoreTable::Troops) {
+        data_table::<Troop>(app, "Troops.json");
+    }
+    if config.loads(CoreTable::Animations) {
+        data_table::<Animation>(app, "Animations.json");
     }
     if config.loads(CoreTable::CommonEvents) {
-        registry.register::<CommonEventsAsset>("CommonEvents.json");
+        data_table::<CommonEvent>(app, "CommonEvents.json");
     }
     if config.loads(CoreTable::MapInfos) {
-        registry.register::<MapInfosAsset>("MapInfos.json");
+        data_table::<MapInfo>(app, "MapInfos.json");
     }
     if config.loads(CoreTable::System) {
-        registry.register::<SystemAsset>("System.json");
+        app.world_mut()
+            .get_resource_or_init::<RmmzRegistry>()
+            .register::<SystemAsset>("System.json");
     }
+}
+
+/// Registers a note-bearing table: a registry entry for `Table<R>` plus the
+/// parse-once note-cache system. The loader is installed by [`RmmzAssetsPlugin`]
+/// for built-ins.
+fn note_table<R>(app: &mut App, file: &str)
+where
+    R: HasNote + HasId + TypePath + Send + Sync + 'static,
+{
+    app.world_mut()
+        .get_resource_or_init::<RmmzRegistry>()
+        .register::<Table<R>>(file);
+    app.add_systems(Update, cache_table_notes::<R>);
+}
+
+/// Registers a plain (no indexed notes) table's registry entry.
+fn data_table<R>(app: &mut App, file: &str)
+where
+    R: TypePath + Send + Sync + 'static,
+{
+    app.world_mut()
+        .get_resource_or_init::<RmmzRegistry>()
+        .register::<Table<R>>(file);
 }
 
 /// Startup system: loads every registered table, recording its handle.
