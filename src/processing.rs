@@ -29,7 +29,7 @@ use bevy_app::App;
 use bevy_asset::io::{AsyncWriteExt, Reader, Writer};
 use bevy_asset::processor::LoadTransformAndSave;
 use bevy_asset::saver::{AssetSaver, SavedAsset};
-use bevy_asset::transformer::IdentityAssetTransformer;
+use bevy_asset::transformer::{AssetTransformer, IdentityAssetTransformer, TransformedAsset};
 use bevy_asset::{Asset, AssetApp, AssetLoader, AssetPath, LoadContext};
 use bevy_reflect::TypePath;
 use serde::Serialize;
@@ -37,11 +37,14 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 use crate::asset::{
-    ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
-    ItemsAsset, MapAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
-    TroopsAsset, WeaponsAsset,
+    AnimationsAsset, BakedRecordNotes, CommonEventsAsset, MapAsset, MapInfosAsset, RmmzAsset,
+    SystemAsset, Table, TroopsAsset,
+};
+use crate::data::{
+    Actor, Armor, Class, Enemy, HasId, HasNote, Item, Skill, State, Tileset, Weapon,
 };
 use crate::loader::RmmzJsonLoader;
+use crate::notes::{NoteBaker, NoteRegistry, NoteTokens};
 
 /// Errors produced by the binary saver/loader.
 #[derive(Debug, Error)]
@@ -122,6 +125,59 @@ where
 pub type RmmzBinProcessor<A> =
     LoadTransformAndSave<RmmzJsonLoader<A>, IdentityAssetTransformer<A>, RmmzBinSaver<A>>;
 
+/// Bakes parsed note metadata into a table at processing time, so the runtime
+/// loads it (deserialize) instead of re-parsing note strings.
+#[derive(TypePath)]
+pub struct NoteBakingTransformer<R> {
+    baker: NoteBaker,
+    _marker: core::marker::PhantomData<fn() -> R>,
+}
+
+impl<R> NoteBakingTransformer<R> {
+    fn new(baker: NoteBaker) -> Self {
+        Self {
+            baker,
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<R> AssetTransformer for NoteBakingTransformer<R>
+where
+    R: HasNote + HasId + TypePath + Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    type AssetInput = Table<R>;
+    type AssetOutput = Table<R>;
+    type Settings = ();
+    type Error = core::convert::Infallible;
+
+    async fn transform(
+        &self,
+        mut asset: TransformedAsset<Table<R>>,
+        _settings: &Self::Settings,
+    ) -> Result<TransformedAsset<Table<R>>, Self::Error> {
+        let baked: Vec<BakedRecordNotes> = asset
+            .get()
+            .iter()
+            .map(|record| BakedRecordNotes {
+                id: record.id(),
+                tags: self.baker.bake(&NoteTokens::parse(record.note())),
+            })
+            .filter(|entry| !entry.tags.is_empty())
+            .collect();
+        asset.get_mut().set_baked(baked);
+        Ok(asset)
+    }
+}
+
+/// The [`Process`](bevy_asset::processor::Process) for a note-bearing table:
+/// loads JSON, bakes parsed note metadata, and saves the compact binary.
+pub type RmmzBinNoteProcessor<R> = LoadTransformAndSave<
+    RmmzJsonLoader<Table<R>>,
+    NoteBakingTransformer<R>,
+    RmmzBinSaver<Table<R>>,
+>;
+
 /// App extension registering the binary processing pipeline.
 pub trait RmmzProcessingExt {
     /// Registers a binary loader and a JSON→binary processor for every core
@@ -131,17 +187,28 @@ pub trait RmmzProcessingExt {
 
 impl RmmzProcessingExt for App {
     fn register_rmmz_processing(&mut self) -> &mut Self {
-        register::<ActorsAsset>(self);
-        register::<ClassesAsset>(self);
-        register::<SkillsAsset>(self);
-        register::<ItemsAsset>(self);
-        register::<WeaponsAsset>(self);
-        register::<ArmorsAsset>(self);
-        register::<EnemiesAsset>(self);
-        register::<StatesAsset>(self);
+        // Snapshot the registered parsers so the (World-free) transformer can
+        // bake notes. Register parsers before calling this.
+        let baker = self
+            .world()
+            .get_resource::<NoteRegistry>()
+            .map(NoteRegistry::baker)
+            .unwrap_or_default();
+
+        // Note-bearing tables: bake parsed metadata into the binary.
+        register_baked::<Actor>(self, &baker);
+        register_baked::<Class>(self, &baker);
+        register_baked::<Skill>(self, &baker);
+        register_baked::<Item>(self, &baker);
+        register_baked::<Weapon>(self, &baker);
+        register_baked::<Armor>(self, &baker);
+        register_baked::<Enemy>(self, &baker);
+        register_baked::<State>(self, &baker);
+        register_baked::<Tileset>(self, &baker);
+
+        // Remaining tables/objects have no indexed notes: plain data processing.
         register::<TroopsAsset>(self);
         register::<AnimationsAsset>(self);
-        register::<TilesetsAsset>(self);
         register::<CommonEventsAsset>(self);
         register::<MapInfosAsset>(self);
         register::<SystemAsset>(self);
@@ -150,11 +217,34 @@ impl RmmzProcessingExt for App {
     }
 }
 
-/// Registers the binary loader and processor for one asset type.
-fn register<A: Asset + Serialize + DeserializeOwned>(app: &mut App) {
+/// Registers a binary loader + identity (data-only) processor for one asset type.
+fn register<A: RmmzAsset + Serialize + DeserializeOwned>(app: &mut App) {
     app.register_asset_loader(RmmzBinLoader::<A>::default());
     let processor: RmmzBinProcessor<A> = RmmzBinSaver::<A>::default().into();
     app.register_asset_processor::<RmmzBinProcessor<A>>(processor);
+}
+
+/// Registers a binary loader + processor for a note-bearing table.
+///
+/// With parsers registered, the processor bakes their output. With **no**
+/// parsers (empty baker), it falls back to data-only processing so the runtime
+/// parses live notes instead of loading empty baked metadata — otherwise a
+/// processed build would silently lose all note metadata.
+fn register_baked<R>(app: &mut App, baker: &NoteBaker)
+where
+    R: HasNote + HasId + TypePath + Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    app.register_asset_loader(RmmzBinLoader::<Table<R>>::default());
+    if baker.is_empty() {
+        let processor: RmmzBinProcessor<Table<R>> = RmmzBinSaver::<Table<R>>::default().into();
+        app.register_asset_processor::<RmmzBinProcessor<Table<R>>>(processor);
+    } else {
+        let processor = RmmzBinNoteProcessor::<R>::new(
+            NoteBakingTransformer::<R>::new(baker.clone()),
+            RmmzBinSaver::<Table<R>>::default(),
+        );
+        app.register_asset_processor::<RmmzBinNoteProcessor<R>>(processor);
+    }
 }
 
 #[cfg(test)]
@@ -163,7 +253,7 @@ mod tests {
     use crate::data::Item;
 
     fn sample(name: &str) -> ItemsAsset {
-        Table(vec![
+        Table::new(vec![
             None,
             Some(Item {
                 id: 1,
@@ -236,5 +326,107 @@ mod tests {
             }
         }
         assert_eq!(name.as_deref(), Some("Ether"));
+    }
+
+    #[test]
+    fn baked_notes_load_into_cache_without_reparsing() {
+        use std::path::Path;
+
+        use bevy_app::{App, TaskPoolPlugin, Update};
+        use bevy_asset::io::memory::{Dir, MemoryAssetReader};
+        use bevy_asset::io::{AssetSourceBuilder, AssetSourceId};
+        use bevy_asset::{AssetApp, AssetPlugin, AssetServer, Assets, Handle};
+        use serde::{Deserialize, Serialize};
+
+        use super::{BakedRecordNotes, NoteTokens, RmmzBinLoader};
+        use crate::asset::ItemsAsset;
+        use crate::data::{HasId, HasNote, Item};
+        use crate::notes::{NoteParser, NoteRegistry, RmmzNoteCache, cache_table_notes};
+
+        #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+        struct Element(String);
+
+        struct ElementParser;
+        impl NoteParser for ElementParser {
+            type Output = Element;
+            const TAG: &'static str = "element";
+            fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
+                tokens.value("element").map(|v| Element(v.to_owned()))
+            }
+        }
+
+        // Bake the item's note ahead of time (as the processing transformer does).
+        let mut bake_registry = NoteRegistry::default();
+        bake_registry.register(ElementParser);
+        let mut table = Table::new(vec![
+            None,
+            Some(Item {
+                id: 1,
+                name: "Ember".to_owned(),
+                note: "<element:fire>".to_owned(),
+                ..Default::default()
+            }),
+        ]);
+        let baked: Vec<BakedRecordNotes> = table
+            .iter()
+            .map(|record| BakedRecordNotes {
+                id: record.id(),
+                tags: bake_registry.bake(&NoteTokens::parse(record.note())),
+            })
+            .collect();
+        table.set_baked(baked);
+        let bytes = postcard::to_stdvec(&table).unwrap();
+
+        let dir = Dir::default();
+        dir.insert_asset(Path::new("Items.rmmzbin"), bytes);
+        let reader_dir = dir.clone();
+
+        // Runtime registry knows how to *deserialize* the baked metadata (same
+        // parser registered), but the cache should not need to parse the note.
+        let mut runtime_registry = NoteRegistry::default();
+        runtime_registry.register(ElementParser);
+
+        let mut app = App::new();
+        app.register_asset_source(
+            AssetSourceId::Default,
+            AssetSourceBuilder::new(move || {
+                Box::new(MemoryAssetReader {
+                    root: reader_dir.clone(),
+                })
+            }),
+        )
+        .add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin {
+                watch_for_changes_override: Some(false),
+                ..Default::default()
+            },
+        ))
+        .init_asset::<ItemsAsset>()
+        .register_asset_loader(RmmzBinLoader::<ItemsAsset>::default())
+        .insert_resource(runtime_registry)
+        .init_resource::<RmmzNoteCache>()
+        .add_systems(Update, cache_table_notes::<Item>);
+
+        let _handle: Handle<ItemsAsset> =
+            app.world().resource::<AssetServer>().load("Items.rmmzbin");
+
+        let mut element = None;
+        for _ in 0..1000 {
+            app.update();
+            // The asset must be loaded *and* the cache populated from baked data.
+            if app
+                .world()
+                .resource::<Assets<ItemsAsset>>()
+                .iter()
+                .next()
+                .is_some()
+                && let Some(note) = app.world().resource::<RmmzNoteCache>().get::<Item>(1)
+            {
+                element = note.get::<Element>().map(|e| e.0.clone());
+                break;
+            }
+        }
+        assert_eq!(element.as_deref(), Some("fire"));
     }
 }

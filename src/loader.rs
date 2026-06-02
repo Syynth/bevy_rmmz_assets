@@ -4,10 +4,11 @@
 use core::marker::PhantomData;
 
 use bevy_asset::io::Reader;
-use bevy_asset::{Asset, AssetLoader, LoadContext};
+use bevy_asset::{AssetLoader, LoadContext};
 use bevy_reflect::TypePath;
-use serde::de::DeserializeOwned;
 use thiserror::Error;
+
+use crate::asset::RmmzAsset;
 
 /// Errors produced by [`RmmzJsonLoader`].
 #[derive(Debug, Error)]
@@ -38,7 +39,7 @@ impl<A> Default for RmmzJsonLoader<A> {
 
 impl<A> AssetLoader for RmmzJsonLoader<A>
 where
-    A: Asset + DeserializeOwned,
+    A: RmmzAsset,
 {
     type Asset = A;
     type Settings = ();
@@ -52,7 +53,8 @@ where
     ) -> Result<A, RmmzLoadError> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        Ok(serde_json::from_slice(&bytes)?)
+        let raw: A::Raw = serde_json::from_slice(&bytes)?;
+        Ok(A::from_raw(raw))
     }
 
     fn extensions(&self) -> &[&str] {

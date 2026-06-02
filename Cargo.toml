@@ -18,7 +18,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
-postcard = { version = "1", optional = true, default-features = false, features = ["use-std"] }
+# postcard backs both note-metadata baking and the binary asset format; it's
+# small and pure-Rust, so it's a normal dependency rather than feature-gated.
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 
 [features]
 default = []
@@ -26,8 +28,8 @@ default = []
 maps = []
 # Enable Bevy's filesystem asset watcher for dev hot-reload.
 file_watcher = ["bevy_asset/file_watcher"]
-# Enable Bevy's asset processor + compact binary (postcard) processing.
-process = ["dep:postcard", "bevy_asset/asset_processor"]
+# Enable Bevy's asset processor to pre-process the database into compact binary.
+process = ["bevy_asset/asset_processor"]
 
 [lints.rust]
 unsafe_code = "deny"

@@ -1,9 +1,9 @@
 //! The crate's Bevy plugin.
 
 use bevy_app::{App, Plugin, Update};
-use bevy_asset::{Asset, AssetApp};
-use serde::de::DeserializeOwned;
+use bevy_asset::AssetApp;
 
+use crate::asset::RmmzAsset;
 use crate::asset::{
     ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
     ItemsAsset, MapAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
@@ -65,7 +65,7 @@ impl Plugin for RmmzAssetsPlugin {
 }
 
 /// Registers an asset type and its JSON loader.
-fn register<A: Asset + DeserializeOwned>(app: &mut App) {
+fn register<A: RmmzAsset>(app: &mut App) {
     app.init_asset::<A>()
         .register_asset_loader(RmmzJsonLoader::<A>::default());
 }

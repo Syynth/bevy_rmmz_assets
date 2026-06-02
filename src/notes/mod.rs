@@ -9,5 +9,5 @@ pub mod registry;
 pub mod tokens;
 
 pub use cache::{RmmzNoteCache, cache_table_notes};
-pub use registry::{NoteParser, NoteRegistry, ParsedNote};
+pub use registry::{NoteBaker, NoteParser, NoteRegistry, ParsedNote};
 pub use tokens::{NoteTag, NoteTokens};

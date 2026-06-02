@@ -11,6 +11,7 @@
 
 use bevy_asset::Asset;
 use bevy_reflect::TypePath;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
@@ -18,29 +19,59 @@ use crate::data::{
     Tileset, Troop, Weapon,
 };
 
+/// Note metadata baked for a single record at processing time: the record's
+/// 1-based id plus serialized `(type-tag, bytes)` pairs (one per parser that
+/// matched). Present only in processed (binary) assets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BakedRecordNotes {
+    /// 1-based id of the record these notes belong to.
+    pub id: i32,
+    /// Serialized parser outputs as `(type tag, postcard bytes)`.
+    pub tags: Vec<(String, Vec<u8>)>,
+}
+
 /// A null-padded list of database records, mirroring the MZ array files.
 ///
 /// MZ array files begin with a `null` at index 0 (ids are 1-based) and may
 /// contain further `null` gaps for deleted entries. Index by id with
 /// [`Table::get`], or iterate the present records with [`Table::iter`].
+///
+/// A table may also carry [`baked`](Table::baked) note metadata — present when
+/// the asset was loaded from a processed binary (notes parsed ahead of time),
+/// absent for JSON (notes parsed at load).
 #[derive(Asset, TypePath, Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Table<T: TypePath + Send + Sync + 'static>(pub Vec<Option<T>>);
+pub struct Table<T: TypePath + Send + Sync + 'static> {
+    records: Vec<Option<T>>,
+    baked: Option<Vec<BakedRecordNotes>>,
+}
 
 impl<T: TypePath + Send + Sync + 'static> Table<T> {
+    /// Creates a table from its records, with no baked notes.
+    pub fn new(records: Vec<Option<T>>) -> Self {
+        Self {
+            records,
+            baked: None,
+        }
+    }
+
+    /// The raw, null-padded record slots (index 0 is the leading `null`).
+    pub fn records(&self) -> &[Option<T>] {
+        &self.records
+    }
+
     /// Returns the record with the given 1-based `id`, or `None` if the id is
     /// out of range or that slot is a `null` gap.
     pub fn get(&self, id: usize) -> Option<&T> {
-        self.0.get(id).and_then(Option::as_ref)
+        self.records.get(id).and_then(Option::as_ref)
     }
 
     /// Iterates over the present (non-`null`) records, skipping gaps.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.0.iter().filter_map(Option::as_ref)
+        self.records.iter().filter_map(Option::as_ref)
     }
 
     /// Number of present (non-`null`) records, ignoring the leading `null` and
-    /// any gaps. For the raw slot count (including padding), use `self.0.len()`.
+    /// any gaps. For the raw slot count, use `self.records().len()`.
     pub fn count(&self) -> usize {
         self.iter().count()
     }
@@ -49,6 +80,36 @@ impl<T: TypePath + Send + Sync + 'static> Table<T> {
     /// holding only the leading `null` reports `true`.)
     pub fn is_empty(&self) -> bool {
         self.iter().next().is_none()
+    }
+
+    /// The baked (ahead-of-time parsed) note metadata, if this table came from a
+    /// processed binary.
+    pub fn baked(&self) -> Option<&[BakedRecordNotes]> {
+        self.baked.as_deref()
+    }
+
+    /// Attaches baked note metadata (used by the processing transformer).
+    pub fn set_baked(&mut self, baked: Vec<BakedRecordNotes>) {
+        self.baked = Some(baked);
+    }
+}
+
+/// Maps a database file's raw JSON shape to its asset type.
+///
+/// The JSON loader deserializes [`Self::Raw`] (the on-disk shape) and wraps it
+/// via [`Self::from_raw`]. This indirection lets [`Table`] load from a plain
+/// JSON array while its asset type also carries optional baked notes.
+pub trait RmmzAsset: Asset {
+    /// The shape the file deserializes into directly.
+    type Raw: DeserializeOwned;
+    /// Wraps freshly-deserialized data into the asset (no baked notes).
+    fn from_raw(raw: Self::Raw) -> Self;
+}
+
+impl<T: TypePath + DeserializeOwned + Send + Sync + 'static> RmmzAsset for Table<T> {
+    type Raw = Vec<Option<T>>;
+    fn from_raw(raw: Self::Raw) -> Self {
+        Table::new(raw)
     }
 }
 
@@ -89,12 +150,26 @@ pub struct SystemAsset(pub System);
 #[serde(transparent)]
 pub struct MapAsset(pub Map);
 
+impl RmmzAsset for SystemAsset {
+    type Raw = System;
+    fn from_raw(raw: Self::Raw) -> Self {
+        SystemAsset(raw)
+    }
+}
+
+impl RmmzAsset for MapAsset {
+    type Raw = Map;
+    fn from_raw(raw: Self::Raw) -> Self {
+        MapAsset(raw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::marker::PhantomData;
 
-    use super::{ActorsAsset, CommonEventsAsset, MapAsset, SystemAsset, TroopsAsset};
-    use crate::data::HasNote;
+    use super::{ActorsAsset, CommonEventsAsset, MapAsset, RmmzAsset, SystemAsset, TroopsAsset};
+    use crate::data::{Actor, HasNote};
 
     // Compile-time proof the wrappers implement `Asset` (covers both the generic
     // `Table` path and the single-object newtypes, Reflect and non-Reflect).
@@ -111,8 +186,9 @@ mod tests {
 
     #[test]
     fn table_indexes_by_one_based_id_and_skips_gaps() {
-        let t: ActorsAsset =
+        let raw: Vec<Option<Actor>> =
             serde_json::from_str(r#"[null,{"id":1,"name":"A"},null,{"id":3,"name":"C"}]"#).unwrap();
+        let t = ActorsAsset::from_raw(raw);
         assert!(t.get(0).is_none());
         assert_eq!(t.get(1).unwrap().name, "A");
         assert!(t.get(2).is_none());
@@ -120,17 +196,19 @@ mod tests {
         assert!(t.get(4).is_none());
         assert_eq!(t.iter().count(), 2);
         assert_eq!(t.count(), 2);
-        assert_eq!(t.0.len(), 4); // raw slots, including the null gaps
+        assert_eq!(t.records().len(), 4); // raw slots, including the null gaps
         assert!(!t.is_empty());
+        assert!(t.baked().is_none());
     }
 
     #[test]
     fn empty_table_reports_zero_records() {
         // The leading null must not be mistaken for a record.
-        let t: ActorsAsset = serde_json::from_str("[null]").unwrap();
+        let raw: Vec<Option<Actor>> = serde_json::from_str("[null]").unwrap();
+        let t = ActorsAsset::from_raw(raw);
         assert_eq!(t.count(), 0);
         assert!(t.is_empty());
-        assert_eq!(t.0.len(), 1);
+        assert_eq!(t.records().len(), 1);
     }
 
     #[test]

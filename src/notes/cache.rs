@@ -63,12 +63,25 @@ pub fn cache_table_notes<R>(
 
     cache.clear_type::<R>();
     for (_, table) in tables.iter() {
-        for record in table.iter() {
-            let parsed = registry.parse_all(&NoteTokens::parse(record.note()));
-            if !parsed.is_empty() {
-                cache
-                    .by_record
-                    .insert((TypeId::of::<R>(), record.id()), parsed);
+        // Prefer baked metadata (parsed ahead of time at processing); fall back
+        // to parsing the live note text.
+        if let Some(baked) = table.baked() {
+            for entry in baked {
+                let parsed = registry.unbake(&entry.tags);
+                if !parsed.is_empty() {
+                    cache
+                        .by_record
+                        .insert((TypeId::of::<R>(), entry.id), parsed);
+                }
+            }
+        } else {
+            for record in table.iter() {
+                let parsed = registry.parse_all(&NoteTokens::parse(record.note()));
+                if !parsed.is_empty() {
+                    cache
+                        .by_record
+                        .insert((TypeId::of::<R>(), record.id()), parsed);
+                }
             }
         }
     }
