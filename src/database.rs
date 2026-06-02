@@ -168,7 +168,10 @@ pub(crate) fn track_load_status(
 /// check.
 ///
 /// Equivalent to [`RmmzDatabase::is_loaded`]: `false` while still loading and on
-/// failure. Reads the latched status, so it is cheap to evaluate every frame.
+/// failure. It reads the **latched** status (see [`RmmzLoadStatus`]), so it is
+/// cheap to evaluate every frame — but, like the latch, it reflects the *initial*
+/// load outcome: once the database has settled it does not flip back to `false`
+/// on a later hot-reload failure (nor recover from an initial failure).
 pub fn rmmz_database_ready(db: RmmzDatabase) -> bool {
     db.is_loaded()
 }
@@ -480,13 +483,32 @@ mod tests {
         app.init_resource::<Ran>()
             .add_systems(Update, bump.run_if(rmmz_database_ready));
 
-        assert_eq!(run_until_settled(&mut app), DatabaseStatus::Loaded);
-        let at_settle = app.world().resource::<Ran>().0;
+        // While still loading, the gated system must not run.
+        let mut status = DatabaseStatus::Loading;
+        for _ in 0..2000 {
+            app.update();
+            status = app
+                .world()
+                .resource::<Probe>()
+                .status
+                .unwrap_or(DatabaseStatus::Loading);
+            if status != DatabaseStatus::Loading {
+                break;
+            }
+            assert_eq!(
+                app.world().resource::<Ran>().0,
+                0,
+                "gated system ran before the database was ready"
+            );
+        }
+        assert_eq!(status, DatabaseStatus::Loaded);
+
+        // Once ready, it runs on every subsequent frame.
+        let at_ready = app.world().resource::<Ran>().0;
         for _ in 0..5 {
             app.update();
         }
-        // Once ready, the gated system runs on every frame thereafter.
-        assert_eq!(app.world().resource::<Ran>().0, at_settle + 5);
+        assert_eq!(app.world().resource::<Ran>().0, at_ready + 5);
     }
 
     #[test]
