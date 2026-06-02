@@ -16,6 +16,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   metadata into release builds (`process` feature).
 - Optional `Map###.json` loading and map/event note metadata (`maps` feature).
 - Filesystem hot-reload support (`file_watcher` feature).
+- `RmmzDatabase::ready()` — a misuse-resistant load accessor returning
+  `Option<Result<(), DatabaseLoadFailed>>` so a failed load surfaces as `Err`
+  instead of masquerading as "still loading" (the footgun `is_loaded()` invites).
+- The aggregate load status is latched once it settles, so steady-state
+  `status()`/`is_loaded()`/`ready()` calls no longer re-poll every table handle.
 
 ### Changed
 
