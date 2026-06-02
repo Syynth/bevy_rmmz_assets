@@ -1,6 +1,6 @@
 //! [`RmmzDatabase`], the ergonomic cross-table access layer.
 
-use bevy_asset::{Asset, AssetServer, Assets, Handle};
+use bevy_asset::{AssetServer, Assets, UntypedHandle};
 use bevy_ecs::system::SystemParam;
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ use crate::asset::{
     ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset, TroopsAsset,
     WeaponsAsset,
 };
-use crate::config::RmmzHandles;
+use crate::config::RmmzRegistry;
 use crate::data::{
     Actor, Animation, Armor, Class, CommonEvent, Enemy, HasId, Item, MapInfo, Skill, State, System,
     Tileset, Troop, Weapon,
@@ -19,7 +19,7 @@ use crate::notes::{ParsedNote, RmmzNoteCache};
 /// A [`SystemParam`] giving ergonomic, id-based read access to the loaded
 /// RPG Maker MZ database.
 ///
-/// It reads the [`RmmzHandles`] populated by
+/// It reads the [`RmmzRegistry`](crate::config::RmmzRegistry) populated by
 /// [`RmmzAppExt`](crate::ext::RmmzAppExt) together with the underlying
 /// `Assets<…>` collections, so access is always live — hot-reloads are reflected
 /// without any extra bookkeeping. Accessors return `None` when a table was not
@@ -39,7 +39,7 @@ use crate::notes::{ParsedNote, RmmzNoteCache};
 /// asset collections) to have been added.
 #[derive(SystemParam)]
 pub struct RmmzDatabase<'w> {
-    handles: bevy_ecs::system::Res<'w, RmmzHandles>,
+    registry: bevy_ecs::system::Res<'w, RmmzRegistry>,
     asset_server: bevy_ecs::system::Res<'w, AssetServer>,
     note_cache: bevy_ecs::system::Res<'w, RmmzNoteCache>,
     load_status: bevy_ecs::system::Res<'w, RmmzLoadStatus>,
@@ -87,11 +87,11 @@ impl DatabaseStatus {
     }
 }
 
-/// Status of a single (optional) table handle, via the asset server's load
-/// state. A `None` handle counts as `Loaded`, since nothing was requested.
-fn table_status<A: Asset>(server: &AssetServer, handle: Option<&Handle<A>>) -> DatabaseStatus {
+/// Status of one registered handle. A `None` handle means "registered but not
+/// yet loaded" (the startup load hasn't run), which counts as `Loading`.
+fn handle_status(server: &AssetServer, handle: Option<&UntypedHandle>) -> DatabaseStatus {
     match handle {
-        None => DatabaseStatus::Loaded,
+        None => DatabaseStatus::Loading,
         Some(h) => {
             let state = server.load_state(h.id());
             if state.is_failed() {
@@ -105,22 +105,12 @@ fn table_status<A: Asset>(server: &AssetServer, handle: Option<&Handle<A>>) -> D
     }
 }
 
-/// The aggregate status across every selected table, computed live.
-fn aggregate_status(server: &AssetServer, handles: &RmmzHandles) -> DatabaseStatus {
-    table_status(server, handles.actors.as_ref())
-        .worse(table_status(server, handles.classes.as_ref()))
-        .worse(table_status(server, handles.skills.as_ref()))
-        .worse(table_status(server, handles.items.as_ref()))
-        .worse(table_status(server, handles.weapons.as_ref()))
-        .worse(table_status(server, handles.armors.as_ref()))
-        .worse(table_status(server, handles.enemies.as_ref()))
-        .worse(table_status(server, handles.states.as_ref()))
-        .worse(table_status(server, handles.troops.as_ref()))
-        .worse(table_status(server, handles.animations.as_ref()))
-        .worse(table_status(server, handles.tilesets.as_ref()))
-        .worse(table_status(server, handles.common_events.as_ref()))
-        .worse(table_status(server, handles.map_infos.as_ref()))
-        .worse(table_status(server, handles.system.as_ref()))
+/// The aggregate status across every registered table, computed live. An empty
+/// registry (nothing requested) is [`Loaded`](DatabaseStatus::Loaded).
+fn aggregate_status(server: &AssetServer, registry: &RmmzRegistry) -> DatabaseStatus {
+    registry.handles().fold(DatabaseStatus::Loaded, |acc, h| {
+        acc.worse(handle_status(server, h))
+    })
 }
 
 /// Caches the database's load status once it settles (becomes [`Loaded`] or
@@ -136,15 +126,11 @@ fn aggregate_status(server: &AssetServer, handles: &RmmzHandles) -> DatabaseStat
 #[derive(bevy_ecs::resource::Resource, Debug, Default, Clone, Copy)]
 pub struct RmmzLoadStatus(Option<DatabaseStatus>);
 
-/// Run condition for [`track_load_status`]: `true` until the load settles (and
-/// only once the handles exist). Gating the tracker on this lets the scheduler
-/// skip it entirely after the database has finished loading, instead of running
-/// it every frame just to early-return.
-pub(crate) fn load_status_unsettled(
-    handles: Option<bevy_ecs::system::Res<RmmzHandles>>,
-    latch: bevy_ecs::system::Res<RmmzLoadStatus>,
-) -> bool {
-    handles.is_some() && latch.0.is_none()
+/// Run condition for [`track_load_status`]: `true` until the load settles. Gating
+/// the tracker on this lets the scheduler skip it entirely after the database has
+/// finished loading, instead of running it every frame just to early-return.
+pub(crate) fn load_status_unsettled(latch: bevy_ecs::system::Res<RmmzLoadStatus>) -> bool {
+    latch.0.is_none()
 }
 
 /// System that latches the database status once it has settled. Gated by
@@ -153,10 +139,10 @@ pub(crate) fn load_status_unsettled(
 /// status is known.
 pub(crate) fn track_load_status(
     server: bevy_ecs::system::Res<AssetServer>,
-    handles: bevy_ecs::system::Res<RmmzHandles>,
+    registry: bevy_ecs::system::Res<RmmzRegistry>,
     mut latch: bevy_ecs::system::ResMut<RmmzLoadStatus>,
 ) {
-    let status = aggregate_status(&server, &handles);
+    let status = aggregate_status(&server, &registry);
     if status != DatabaseStatus::Loading {
         latch.0 = Some(status);
     }
@@ -187,7 +173,7 @@ macro_rules! table_accessors {
         $(
             #[doc = concat!("Returns the loaded `", stringify!($plural), "` table, or `None`.")]
             pub fn $plural(&self) -> Option<&$asset> {
-                self.handles.$plural.as_ref().and_then(|h| self.$plural.get(h))
+                self.registry.handle::<$asset>().and_then(|h| self.$plural.get(&h))
             }
 
             #[doc = concat!("Returns the `", stringify!($single), "` with the given 1-based id.")]
@@ -217,10 +203,9 @@ impl RmmzDatabase<'_> {
 
     /// Returns the loaded [`System`] settings, or `None`.
     pub fn system(&self) -> Option<&System> {
-        self.handles
-            .system
-            .as_ref()
-            .and_then(|h| self.system.get(h))
+        self.registry
+            .handle::<SystemAsset>()
+            .and_then(|h| self.system.get(&h))
             .map(|asset| &asset.0)
     }
 
@@ -236,7 +221,7 @@ impl RmmzDatabase<'_> {
         if let Some(settled) = self.load_status.0 {
             return settled;
         }
-        aggregate_status(&self.asset_server, &self.handles)
+        aggregate_status(&self.asset_server, &self.registry)
     }
 
     /// Polls the load as a misuse-resistant `Result`:
@@ -318,10 +303,9 @@ impl RmmzDatabase<'_> {
 
     /// The map ids listed in `MapInfos.json` (whether or not each is loaded).
     pub fn map_ids(&self) -> Vec<i32> {
-        self.handles
-            .map_infos
-            .as_ref()
-            .and_then(|handle| self.map_infos.get(handle))
+        self.registry
+            .handle::<MapInfosAsset>()
+            .and_then(|handle| self.map_infos.get(&handle))
             .map(|infos| infos.iter().map(|info| info.id).collect())
             .unwrap_or_default()
     }
@@ -553,7 +537,7 @@ mod tests {
         use bevy_asset::Assets;
 
         use crate::asset::{ItemsAsset, Table};
-        use crate::config::RmmzHandles;
+        use crate::config::RmmzRegistry;
         use crate::data::Item;
 
         let mut app = build_app(
@@ -577,7 +561,11 @@ mod tests {
 
         // Simulate a hot-reload: replacing the asset fires AssetEvent::Modified,
         // which both updates the live data and re-runs the note cache.
-        let handle = app.world().resource::<RmmzHandles>().items.clone().unwrap();
+        let handle = app
+            .world()
+            .resource::<RmmzRegistry>()
+            .handle::<ItemsAsset>()
+            .unwrap();
         {
             let mut items = app.world_mut().resource_mut::<Assets<ItemsAsset>>();
             items

@@ -13,7 +13,7 @@ use bevy_asset::{AssetEvent, AssetId, AssetServer, Assets, Handle};
 use bevy_ecs::prelude::{Local, MessageReader, Res, ResMut, Resource};
 
 use crate::asset::{MapAsset, MapInfosAsset};
-use crate::config::{RmmzConfig, RmmzHandles};
+use crate::config::{RmmzConfig, RmmzRegistry};
 use crate::data::HasNote;
 use crate::notes::{NoteRegistry, NoteTokens, ParsedNote};
 
@@ -130,14 +130,17 @@ pub(crate) fn load_requested_maps(
 /// loads (runs to completion once).
 pub(crate) fn eager_request_maps(
     mut maps: ResMut<RmmzMaps>,
-    handles: Res<RmmzHandles>,
+    registry: Res<RmmzRegistry>,
     map_infos: Res<Assets<MapInfosAsset>>,
     mut done: Local<bool>,
 ) {
     if *done || maps.strategy != MapLoad::Eager {
         return;
     }
-    let Some(infos) = handles.map_infos.as_ref().and_then(|h| map_infos.get(h)) else {
+    let Some(infos) = registry
+        .handle::<MapInfosAsset>()
+        .and_then(|h| map_infos.get(&h))
+    else {
         return;
     };
     for info in infos.iter() {
