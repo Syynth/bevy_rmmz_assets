@@ -140,6 +140,25 @@ Each entry uses the format:
   redesign later (and collapses the current ~8-site edit burden for adding a
   table).
 
+## Release memory: own custom assets in the snapshot when `file_watcher` is off
+- **WHEN:** 2026-06-02
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** assets / snapshot
+- **SCOPE:** moderate
+- **WHAT:** When the `file_watcher` feature is **off** (compile-time), custom
+  assets are *moved* (not cloned) out of `Assets<A>` into the `RmmzAssets`
+  snapshot and their handle is dropped, so release builds store custom data once
+  rather than twice. When `file_watcher` is on (dev), keep the handle + clone so
+  hot-reload still works. This ships **as part of Phase 4** (alongside baking),
+  not a separate pass.
+- **WHY:** Custom access goes only through the snapshot, so the `Assets<A>` copy
+  is dead weight at runtime; freeing it halves memory for large custom data.
+  Gating on `file_watcher`-off ties it to "no hot-reload needed" without adding a
+  separate config flag (user's call, over an explicit opt-in). Moving instead of
+  cloning avoids even a transient 2× during load. Requires an `owned` flag on the
+  registry entry (so `status()` still reports `Loaded` after the handle is
+  dropped) and ordering note-caching before the move.
+
 ## Load-state reporting: misuse-resistant `ready()` + settle latch
 - **WHEN:** 2026-06-02
 - **PROJECT:** bevy_rmmz_assets

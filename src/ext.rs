@@ -1,8 +1,9 @@
 //! The [`RmmzAppExt`] convenience trait for wiring up loading.
 
 use bevy_app::{App, Startup, Update};
-use bevy_asset::{AssetApp, AssetServer};
+use bevy_asset::{Asset, AssetApp, AssetServer};
 use bevy_ecs::prelude::{Res, ResMut};
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_reflect::TypePath;
 use serde::de::DeserializeOwned;
 
@@ -16,6 +17,9 @@ use crate::data::{
 use crate::database::{RmmzFetch, RmmzTable};
 use crate::loader::RmmzJsonLoader;
 use crate::notes::{NoteParser, NoteRegistry, cache_table_notes};
+#[cfg(not(feature = "file_watcher"))]
+use crate::snapshot::own_snapshot_asset;
+#[cfg(feature = "file_watcher")]
 use crate::snapshot::snapshot_asset;
 
 /// Convenience methods on [`App`] for setting up RPG Maker MZ loading.
@@ -115,8 +119,8 @@ impl RmmzAppExt for App {
         A: RmmzAsset + RmmzFetch + Clone,
     {
         self.init_asset::<A>()
-            .register_asset_loader(RmmzJsonLoader::<A>::default())
-            .add_systems(Update, snapshot_asset::<A>);
+            .register_asset_loader(RmmzJsonLoader::<A>::default());
+        add_snapshot_system::<A>(self);
         {
             let mut registry = self.world_mut().get_resource_or_init::<RmmzRegistry>();
             registry.register::<A>(file);
@@ -129,6 +133,7 @@ impl RmmzAppExt for App {
         R: RmmzTable + DeserializeOwned + Clone,
     {
         register_custom_table::<R>(self, file);
+        add_snapshot_system::<Table<R>>(self);
         self
     }
 
@@ -137,7 +142,18 @@ impl RmmzAppExt for App {
         R: RmmzTable + HasNote + HasId + DeserializeOwned + Clone,
     {
         register_custom_table::<R>(self, file);
-        self.add_systems(Update, cache_table_notes::<R>);
+        // Parse notes from `Assets<Table<R>>` *before* the snapshot system runs —
+        // under `file_watcher` off it moves the asset away.
+        #[cfg(feature = "file_watcher")]
+        self.add_systems(
+            Update,
+            (cache_table_notes::<R>, snapshot_asset::<Table<R>>).chain(),
+        );
+        #[cfg(not(feature = "file_watcher"))]
+        self.add_systems(
+            Update,
+            (cache_table_notes::<R>, own_snapshot_asset::<Table<R>>).chain(),
+        );
         self
     }
 
@@ -231,11 +247,19 @@ where
     R: RmmzTable + DeserializeOwned + Clone,
 {
     app.init_asset::<Table<R>>()
-        .register_asset_loader(RmmzJsonLoader::<Table<R>>::default())
-        .add_systems(Update, snapshot_asset::<Table<R>>);
+        .register_asset_loader(RmmzJsonLoader::<Table<R>>::default());
     app.world_mut()
         .get_resource_or_init::<RmmzRegistry>()
         .register::<Table<R>>(file);
+}
+
+/// Adds the per-type snapshot system: clone-and-keep when `file_watcher` is on
+/// (so hot-reload works), move-and-own otherwise (so the data is stored once).
+fn add_snapshot_system<A: Asset + Clone>(app: &mut App) {
+    #[cfg(feature = "file_watcher")]
+    app.add_systems(Update, snapshot_asset::<A>);
+    #[cfg(not(feature = "file_watcher"))]
+    app.add_systems(Update, own_snapshot_asset::<A>);
 }
 
 /// Startup system: loads every registered table, recording its handle.
@@ -374,6 +398,17 @@ mod tests {
             app.world().resource::<Probe>().value.as_deref(),
             Some("break")
         );
+
+        // With `file_watcher` off, the asset is *moved* into the snapshot and the
+        // `Assets<A>` copy is freed — stored once, not twice — yet still reachable.
+        #[cfg(not(feature = "file_watcher"))]
+        {
+            use bevy_asset::Assets;
+            assert!(
+                app.world().resource::<Assets<AnimationMap>>().is_empty(),
+                "owned custom asset should be moved out of Assets<A>"
+            );
+        }
     }
 
     #[test]
