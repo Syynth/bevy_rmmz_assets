@@ -170,11 +170,13 @@ pub fn rmmz_database_ready(db: RmmzDatabase) -> bool {
 pub struct DatabaseLoadFailed;
 
 /// Manual-specialization access trait: each asset type knows how to fetch its
-/// loaded instance from the database. Built-in types read their zero-copy
-/// `Assets<…>` collections; custom types read the snapshot (added with
-/// custom-type support). There is **no blanket impl**, so this is the stable-Rust
-/// stand-in for specialization — [`RmmzDatabase::asset`] dispatches to `A`'s own
-/// impl, letting built-ins resolve zero-copy while custom types share the path.
+/// loaded instance from the database. There is **no blanket impl**, so this is
+/// the stable-Rust stand-in for specialization — [`RmmzDatabase::asset`]
+/// dispatches to `A`'s own impl.
+///
+/// Currently implemented for the built-in asset types, which resolve zero-copy
+/// from their `Assets<…>` collections. Custom user-defined types gain impls
+/// (reading a snapshot) when custom-type support lands.
 pub trait RmmzFetch: Asset + Sized {
     /// Fetches the loaded instance of `Self`, or `None` if it is not loaded.
     fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self>;
@@ -235,11 +237,12 @@ impl RmmzFetch for SystemAsset {
 }
 
 impl RmmzDatabase<'_> {
-    /// Generic typed access to any registered asset `A` (built-in or custom).
+    /// Generic typed access to a registered asset `A`.
     ///
-    /// `A` is the asset type — e.g. `db.asset::<SystemAsset>()`, or for custom
-    /// single-document types `db.asset::<MyConfig>()`. For id-indexed tables
-    /// prefer [`Self::table`] / [`Self::record`].
+    /// `A` is the asset type — e.g. `db.asset::<SystemAsset>()`. For id-indexed
+    /// tables prefer [`Self::table`] / [`Self::record`]. (Custom user-defined
+    /// asset types become reachable here once custom-type support lands; today
+    /// the built-in asset types implement [`RmmzFetch`].)
     pub fn asset<A: RmmzFetch>(&self) -> Option<&A> {
         A::fetch(self)
     }
