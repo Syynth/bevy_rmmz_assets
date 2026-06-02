@@ -184,15 +184,34 @@ pub trait RmmzFetch: Asset + Sized {
     fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self>;
 }
 
+/// Manual-specialization access trait for **table records**: each record type `R`
+/// knows how to fetch its loaded `Table<R>`. Built-in records read the zero-copy
+/// `Assets<…>` collection; custom records read the snapshot.
+///
+/// Implemented on the *record* type (not `Table<R>`) so consumers can implement
+/// it for their own local types — `impl RmmzFetch for Table<R>` would violate the
+/// orphan rule (both `Table` and the trait are foreign). [`RmmzDatabase::table`]
+/// dispatches through it.
+pub trait RmmzTable: TypePath + Send + Sync + Sized + 'static {
+    /// Fetches the loaded `Table<Self>`, or `None` if it is not loaded.
+    fn fetch_table<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Table<Self>>;
+}
+
 /// Generates, per built-in table: a zero-copy [`RmmzFetch`] impl (reads the
-/// static `Assets<…>` collection by registry handle) plus the named convenience
-/// accessors, which delegate to the generic [`RmmzDatabase::asset`] path.
+/// static `Assets<…>` collection by registry handle), a [`RmmzTable`] impl on the
+/// record type delegating to it, plus the named convenience accessors.
 macro_rules! table_accessors {
     ($($plural:ident / $single:ident => $asset:ty [$record:ty]),+ $(,)?) => {
         $(
             impl RmmzFetch for $asset {
                 fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self> {
                     db.registry.handle::<$asset>().and_then(|h| db.$plural.get(&h))
+                }
+            }
+
+            impl RmmzTable for $record {
+                fn fetch_table<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Table<$record>> {
+                    db.asset::<$asset>()
                 }
             }
         )+
@@ -255,21 +274,13 @@ impl RmmzDatabase<'_> {
         self.snapshots.get::<A>()
     }
 
-    /// The loaded table of records `R`, if `Table<R>` is registered.
-    pub fn table<R>(&self) -> Option<&Table<R>>
-    where
-        R: TypePath + Send + Sync + 'static,
-        Table<R>: RmmzFetch,
-    {
-        self.asset::<Table<R>>()
+    /// The loaded table of records `R`, if registered (built-in or custom).
+    pub fn table<R: RmmzTable>(&self) -> Option<&Table<R>> {
+        R::fetch_table(self)
     }
 
-    /// The record `R` with the given 1-based id, if `Table<R>` is registered.
-    pub fn record<R>(&self, id: usize) -> Option<&R>
-    where
-        R: TypePath + Send + Sync + 'static,
-        Table<R>: RmmzFetch,
-    {
+    /// The record `R` with the given 1-based id, if registered.
+    pub fn record<R: RmmzTable>(&self, id: usize) -> Option<&R> {
         self.table::<R>().and_then(|table| table.get(id))
     }
 

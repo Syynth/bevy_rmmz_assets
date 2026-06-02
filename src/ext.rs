@@ -4,6 +4,7 @@ use bevy_app::{App, Startup, Update};
 use bevy_asset::{AssetApp, AssetServer};
 use bevy_ecs::prelude::{Res, ResMut};
 use bevy_reflect::TypePath;
+use serde::de::DeserializeOwned;
 
 use crate::RmmzAssetsPlugin;
 use crate::asset::{RmmzAsset, SystemAsset, Table};
@@ -12,7 +13,7 @@ use crate::data::{
     Actor, Animation, Armor, Class, CommonEvent, Enemy, HasId, HasNote, Item, MapInfo, Skill,
     State, Tileset, Troop, Weapon,
 };
-use crate::database::RmmzFetch;
+use crate::database::{RmmzFetch, RmmzTable};
 use crate::loader::RmmzJsonLoader;
 use crate::notes::{NoteParser, NoteRegistry, cache_table_notes};
 use crate::snapshot::snapshot_asset;
@@ -47,6 +48,23 @@ pub trait RmmzAppExt {
     fn register_rmmz<A>(&mut self, file: impl Into<String>) -> &mut Self
     where
         A: RmmzAsset + RmmzFetch + Clone;
+
+    /// Registers a custom **table** record type `R` (id-indexed `Table<R>`),
+    /// loaded from `file` and reachable via `db.table::<R>()` / `db.record::<R>(id)`.
+    ///
+    /// Wire `R` with [`rmmz_table!`](crate::rmmz_table). For tables whose records
+    /// carry `<tag:value>` notes, use [`Self::register_rmmz_note_table`] instead.
+    /// Call **after** [`Self::add_rmmz`].
+    fn register_rmmz_table<R>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        R: RmmzTable + DeserializeOwned + Clone;
+
+    /// Like [`Self::register_rmmz_table`], but also parses each record's note into
+    /// the shared note cache (so `db.note_meta::<O>(record)` works), exactly as the
+    /// built-in note-bearing tables do. Requires `R: HasNote + HasId`.
+    fn register_rmmz_note_table<R>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        R: RmmzTable + HasNote + HasId + DeserializeOwned + Clone;
 
     /// Enables map loading with the given strategy (default is off). Call after
     /// [`Self::add_rmmz`]. Under [`MapLoad::Eager`](crate::maps::MapLoad::Eager),
@@ -103,6 +121,23 @@ impl RmmzAppExt for App {
             let mut registry = self.world_mut().get_resource_or_init::<RmmzRegistry>();
             registry.register::<A>(file);
         }
+        self
+    }
+
+    fn register_rmmz_table<R>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        R: RmmzTable + DeserializeOwned + Clone,
+    {
+        register_custom_table::<R>(self, file);
+        self
+    }
+
+    fn register_rmmz_note_table<R>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        R: RmmzTable + HasNote + HasId + DeserializeOwned + Clone,
+    {
+        register_custom_table::<R>(self, file);
+        self.add_systems(Update, cache_table_notes::<R>);
         self
     }
 
@@ -183,6 +218,21 @@ fn data_table<R>(app: &mut App, file: &str)
 where
     R: TypePath + Send + Sync + 'static,
 {
+    app.world_mut()
+        .get_resource_or_init::<RmmzRegistry>()
+        .register::<Table<R>>(file);
+}
+
+/// Shared wiring for a **custom** table type: asset + JSON loader + snapshot
+/// system + registry entry for `Table<R>`. (Built-ins skip this — the plugin
+/// already installs their asset/loader, and they read zero-copy, not the snapshot.)
+fn register_custom_table<R>(app: &mut App, file: impl Into<String>)
+where
+    R: RmmzTable + DeserializeOwned + Clone,
+{
+    app.init_asset::<Table<R>>()
+        .register_asset_loader(RmmzJsonLoader::<Table<R>>::default())
+        .add_systems(Update, snapshot_asset::<Table<R>>);
     app.world_mut()
         .get_resource_or_init::<RmmzRegistry>()
         .register::<Table<R>>(file);
@@ -324,6 +374,86 @@ mod tests {
             app.world().resource::<Probe>().value.as_deref(),
             Some("break")
         );
+    }
+
+    #[test]
+    fn register_rmmz_note_table_loads_records_and_notes() {
+        use bevy_app::Update;
+        use bevy_ecs::prelude::{ResMut, Resource};
+        use bevy_reflect::TypePath;
+        use serde::{Deserialize, Serialize};
+
+        use crate::data::{HasId, HasNote};
+        use crate::database::RmmzDatabase;
+        use crate::notes::{NoteParser, NoteTokens};
+
+        // A custom note-bearing table record (id + name + RMMZ-style note).
+        #[derive(TypePath, Serialize, Deserialize, Clone)]
+        struct Quest {
+            id: i32,
+            name: String,
+            note: String,
+        }
+        impl HasId for Quest {
+            fn id(&self) -> i32 {
+                self.id
+            }
+        }
+        impl HasNote for Quest {
+            fn note(&self) -> &str {
+                &self.note
+            }
+        }
+        crate::rmmz_table!(Quest);
+
+        #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+        struct Reward(String);
+        struct RewardParser;
+        impl NoteParser for RewardParser {
+            type Output = Reward;
+            const TAG: &'static str = "reward";
+            fn parse(&self, t: &NoteTokens) -> Option<Reward> {
+                t.value("reward").map(|v| Reward(v.to_owned()))
+            }
+        }
+
+        #[derive(Resource, Default)]
+        struct Probe {
+            name: Option<String>,
+            reward: Option<String>,
+        }
+        fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
+            if let Some(quest) = db.record::<Quest>(1) {
+                out.name = Some(quest.name.clone());
+                out.reward = db.note_meta::<Reward, _>(quest).map(|r| r.0.clone());
+            }
+        }
+
+        let mut app = app_with(&[(
+            "data/QuestLog.json",
+            r#"[null,{"id":1,"name":"Slay the Slime","note":"<reward:gold>"}]"#,
+        )]);
+        app.init_resource::<Probe>()
+            .register_note_parser(RewardParser)
+            .add_rmmz_with(RmmzConfig::default().with_tables([]))
+            .register_rmmz_note_table::<Quest>("QuestLog.json")
+            .add_systems(Update, probe);
+
+        let mut reward = None;
+        for _ in 0..1000 {
+            app.update();
+            reward = app.world().resource::<Probe>().reward.clone();
+            if reward.is_some() {
+                break;
+            }
+        }
+        // The record is reachable via db.record, and its note metadata via the
+        // shared note cache — exactly like a built-in note-bearing table.
+        assert_eq!(
+            app.world().resource::<Probe>().name.as_deref(),
+            Some("Slay the Slime")
+        );
+        assert_eq!(reward.as_deref(), Some("gold"));
     }
 
     fn run_until_loaded<A: bevy_asset::Asset>(

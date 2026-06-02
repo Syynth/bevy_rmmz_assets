@@ -28,6 +28,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Custom single-document asset types: `register_rmmz::<A>(file)` + the
   `rmmz_asset!` macro load a consumer-defined `data/*.json` into a typed asset,
   reachable via `db.asset::<A>()`. See `examples/custom.rs`.
+- Custom id-indexed **table** types: `register_rmmz_table::<R>(file)` /
+  `register_rmmz_note_table::<R>(file)` + the `rmmz_table!` macro, reachable via
+  `db.table::<R>()` / `db.record::<R>(id)`. Note-bearing custom tables participate
+  in the shared note cache (`db.note_meta`) just like built-in tables.
 
 ### Changed
 

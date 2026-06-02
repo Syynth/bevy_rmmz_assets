@@ -18,7 +18,7 @@ pub use crate::data::{
 };
 pub use crate::data::{HasId, HasNote};
 pub use crate::database::{
-    DatabaseLoadFailed, DatabaseStatus, RmmzDatabase, RmmzFetch, rmmz_database_ready,
+    DatabaseLoadFailed, DatabaseStatus, RmmzDatabase, RmmzFetch, RmmzTable, rmmz_database_ready,
 };
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
@@ -29,4 +29,4 @@ pub use crate::notes::{NoteParser, NoteRegistry, NoteTag, NoteTokens, ParsedNote
 pub use crate::processing::{
     RmmzBinError, RmmzBinLoader, RmmzBinProcessor, RmmzBinSaver, RmmzProcessingExt,
 };
-pub use crate::rmmz_asset;
+pub use crate::{rmmz_asset, rmmz_table};
