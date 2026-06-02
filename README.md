@@ -5,8 +5,62 @@ database" — the `data/*.json` files an MZ project ships — into
 [Bevy](https://bevyengine.org) as assets, with an ergonomic resource layer on
 top.
 
-> **Status:** early scaffold. The API is being built out issue-by-issue; expect
-> rapid change.
+> **Status:** pre-release (`0.1`, unpublished). Targets Bevy `0.19.0-rc`; expect
+> some churn until both stabilize.
+
+## Usage
+
+Add the plugin (after Bevy's `AssetPlugin` / `DefaultPlugins`) and query the
+database from any system:
+
+```rust
+use bevy_rmmz_assets::prelude::*;
+
+// In your app setup, after AssetPlugin:
+//   app.add_rmmz();                       // load all core tables from `data/`
+//   app.add_rmmz_with(RmmzConfig::new("data").with_tables([CoreTable::Items]));
+
+fn use_database(db: RmmzDatabase) {
+    if !db.is_loaded() {
+        return;
+    }
+    if let Some(item) = db.item(1) {
+        println!("item 1 is {}", item.name);
+    }
+}
+```
+
+Parse structured metadata out of the `note` field by registering a parser:
+
+```rust
+use bevy_rmmz_assets::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct Element(String);
+
+struct ElementParser;
+impl NoteParser for ElementParser {
+    type Output = Element;
+    const TAG: &'static str = "element"; // stable tag, used in baked assets
+    fn parse(&self, tokens: &NoteTokens) -> Option<Element> {
+        tokens.value("element").map(|v| Element(v.to_owned()))
+    }
+}
+
+// app.register_note_parser(ElementParser);
+// then in a system: db.note_meta::<Element>(item)
+```
+
+Notes are parsed once per record at load and cached, so `note_meta` lookups are
+cheap. With the `process` feature, the parsed metadata is baked into the
+processed binary so release builds do no parsing at all.
+
+A runnable example lives in [`examples/load.rs`](examples/load.rs):
+
+```sh
+cargo run --example load
+```
 
 ## Goals
 
