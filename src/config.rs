@@ -175,9 +175,9 @@ pub struct RmmzRegistry {
 
 impl RmmzRegistry {
     /// Registers asset type `A` to load from `file` (relative to the data path).
-    /// Idempotent per type. Prefer the `App`-level helpers over calling this
-    /// directly.
-    pub fn register<A: Asset>(&mut self, file: impl Into<String>) {
+    /// Idempotent per type. Internal for now — the public registration surface
+    /// (App-level helpers / macros) lands with custom-type support.
+    pub(crate) fn register<A: Asset>(&mut self, file: impl Into<String>) {
         self.entries
             .entry(TypeId::of::<A>())
             .or_insert_with(|| RegistryEntry {
@@ -187,7 +187,10 @@ impl RmmzRegistry {
             });
     }
 
-    /// The typed handle for `A`, if `A` is registered and has been loaded.
+    /// The recorded handle for `A`, if `A` is registered and its load has been
+    /// requested. The handle may still be loading or have failed — consult
+    /// [`RmmzDatabase::status`](crate::database::RmmzDatabase::status) /
+    /// [`ready`](crate::database::RmmzDatabase::ready) for actual load state.
     pub fn handle<A: Asset>(&self) -> Option<Handle<A>> {
         self.entries
             .get(&TypeId::of::<A>())
