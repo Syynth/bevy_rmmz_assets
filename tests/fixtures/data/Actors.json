@@ -1,0 +1,5 @@
+[
+  null,
+  { "id": 1, "name": "Harold", "classId": 1, "note": "<role:hero>" },
+  { "id": 2, "name": "Therese", "classId": 2, "note": "" }
+]

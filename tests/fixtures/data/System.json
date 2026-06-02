@@ -1,0 +1,11 @@
+{
+  "gameTitle": "Fixture Quest",
+  "currencyUnit": "G",
+  "partyMembers": [1, 2],
+  "terms": {
+    "basic": ["Level", "Lv", "HP", "HP"],
+    "commands": [null, "Fight", "Escape"],
+    "params": ["Max HP", "Max MP"],
+    "messages": { "levelUp": "%1 is now %2 %3!" }
+  }
+}
