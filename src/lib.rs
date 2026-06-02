@@ -82,7 +82,7 @@ pub use plugin::RmmzAssetsPlugin;
 /// access) so the type can be registered with
 /// [`RmmzAppExt::register_rmmz`](crate::ext::RmmzAppExt::register_rmmz) and read
 /// via `db.asset::<T>()`. The type must `#[derive(Asset, …)]` and be
-/// `Serialize + Deserialize + Clone`.
+/// `Deserialize + Clone` (also `Serialize` if you opt into binary processing).
 ///
 /// ```ignore
 /// #[derive(bevy_asset::Asset, bevy_reflect::TypePath, serde::Serialize, serde::Deserialize, Clone)]

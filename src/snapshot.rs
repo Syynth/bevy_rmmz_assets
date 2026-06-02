@@ -14,6 +14,8 @@ use std::sync::Arc;
 use bevy_asset::{Asset, AssetEvent, Assets};
 use bevy_ecs::prelude::{MessageReader, Res, ResMut, Resource};
 
+use crate::config::RmmzRegistry;
+
 /// Type-keyed snapshot of loaded custom assets, each held as `Arc<A>`.
 ///
 /// Populated by [`snapshot_asset`] (registered per custom type) and read through
@@ -40,22 +42,33 @@ impl RmmzAssets {
 pub(crate) fn snapshot_asset<A: Asset + Clone>(
     mut events: MessageReader<AssetEvent<A>>,
     assets: Res<Assets<A>>,
+    registry: Res<RmmzRegistry>,
     mut snapshot: ResMut<RmmzAssets>,
 ) {
+    // Only the registered handle's asset represents this custom type; ignore
+    // events for any other `Assets<A>` entry so a stray load/unload can't clobber
+    // or clear the snapshot.
+    let Some(registered) = registry.handle::<A>() else {
+        return;
+    };
+    let registered = registered.id();
     for event in events.read() {
         match event {
             AssetEvent::Added { id }
             | AssetEvent::Modified { id }
-            | AssetEvent::LoadedWithDependencies { id } => {
+            | AssetEvent::LoadedWithDependencies { id }
+                if *id == registered =>
+            {
                 if let Some(asset) = assets.get(*id) {
                     snapshot
                         .map
                         .insert(TypeId::of::<A>(), Arc::new(asset.clone()));
                 }
             }
-            AssetEvent::Removed { .. } | AssetEvent::Unused { .. } => {
+            AssetEvent::Removed { id } | AssetEvent::Unused { id } if *id == registered => {
                 snapshot.map.remove(&TypeId::of::<A>());
             }
+            _ => {}
         }
     }
 }
