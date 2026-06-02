@@ -103,9 +103,11 @@ custom data uniformly. A runnable version lives in
 cargo run --example custom
 ```
 
-> Custom **id-array** tables (the MZ `Table<R>` shape) are not yet supported for
-> consumer types — only whole-document/singleton types. Most plugin data is
-> map- or object-shaped, so this covers the common case.
+> Custom **id-array** tables (the MZ `Table<R>` shape) work too: define a record
+> type, `rmmz_table!(R)`, then `register_rmmz_table::<R>("File.json")` (or
+> `register_rmmz_note_table` if its records carry `<tag:value>` notes), and read
+> via `db.table::<R>()` / `db.record::<R>(id)`. Most plugin data is map- or
+> object-shaped, so the singleton form above is the common case.
 
 ### Maps (optional, `maps` feature)
 
@@ -155,6 +157,12 @@ registers all of them; you opt a file in with an asset `.meta` that names the
 matching processor, and run Bevy with its asset processor enabled. Parsed note
 metadata is baked into the binary at processing time, so processed builds skip
 note parsing entirely. See the [`processing`] module docs for the full details.
+
+Custom types bake too — `register_rmmz_bin::<T>()` (and `register_rmmz_bin_table`
+/ `register_rmmz_bin_note_table` for tables) wire the same pipeline for a
+consumer-defined type. Separately, with `file_watcher` off, custom assets are
+moved into the snapshot and their `Assets<A>` copy freed, so release builds store
+custom data once rather than twice.
 
 [`processing`]: https://docs.rs/bevy_rmmz_assets/latest/bevy_rmmz_assets/processing/index.html
 

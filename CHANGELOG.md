@@ -32,6 +32,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `register_rmmz_note_table::<R>(file)` + the `rmmz_table!` macro, reachable via
   `db.table::<R>()` / `db.record::<R>(id)`. Note-bearing custom tables participate
   in the shared note cache (`db.note_meta`) just like built-in tables.
+- Custom binary processing (`process` feature): `register_rmmz_bin::<A>()` /
+  `register_rmmz_bin_table::<R>()` / `register_rmmz_bin_note_table::<R>()` bake
+  custom types into the processed binary (note tables bake their notes too).
+- With `file_watcher` off, custom assets are moved into the snapshot and their
+  `Assets<A>` copy is freed, so release builds store custom data once.
 
 ### Changed
 

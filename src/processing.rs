@@ -245,6 +245,29 @@ pub trait RmmzProcessingExt {
     /// Registers a binary loader and a JSON→binary processor for every core
     /// asset type. Has effect only when the `asset_processor` feature is active.
     fn register_rmmz_processing(&mut self) -> &mut Self;
+
+    /// Registers binary processing for a custom single-document asset type `A` —
+    /// the `process` analogue of
+    /// [`register_rmmz`](crate::ext::RmmzAppExt::register_rmmz). `A` must be
+    /// `Serialize` (for the postcard saver) in addition to its load bounds.
+    fn register_rmmz_bin<A>(&mut self) -> &mut Self
+    where
+        A: RmmzAsset + Serialize + DeserializeOwned;
+
+    /// Registers binary processing for a custom data table `Table<R>` — the
+    /// `process` analogue of
+    /// [`register_rmmz_table`](crate::ext::RmmzAppExt::register_rmmz_table).
+    fn register_rmmz_bin_table<R>(&mut self) -> &mut Self
+    where
+        R: TypePath + Serialize + DeserializeOwned + Send + Sync + 'static;
+
+    /// Registers binary processing for a custom note-bearing table `Table<R>`,
+    /// baking the parsed note metadata into the binary (the `process` analogue of
+    /// [`register_rmmz_note_table`](crate::ext::RmmzAppExt::register_rmmz_note_table)).
+    /// Register note parsers before calling this so the bake includes them.
+    fn register_rmmz_bin_note_table<R>(&mut self) -> &mut Self
+    where
+        R: HasNote + HasId + TypePath + Serialize + DeserializeOwned + Send + Sync + 'static;
 }
 
 impl RmmzProcessingExt for App {
@@ -288,6 +311,35 @@ impl RmmzProcessingExt for App {
         #[cfg(not(feature = "maps"))]
         register::<MapAsset>(self);
 
+        self
+    }
+
+    fn register_rmmz_bin<A>(&mut self) -> &mut Self
+    where
+        A: RmmzAsset + Serialize + DeserializeOwned,
+    {
+        register::<A>(self);
+        self
+    }
+
+    fn register_rmmz_bin_table<R>(&mut self) -> &mut Self
+    where
+        R: TypePath + Serialize + DeserializeOwned + Send + Sync + 'static,
+    {
+        register::<Table<R>>(self);
+        self
+    }
+
+    fn register_rmmz_bin_note_table<R>(&mut self) -> &mut Self
+    where
+        R: HasNote + HasId + TypePath + Serialize + DeserializeOwned + Send + Sync + 'static,
+    {
+        let baker = self
+            .world()
+            .get_resource::<NoteRegistry>()
+            .map(NoteRegistry::baker)
+            .unwrap_or_default();
+        register_baked::<R>(self, &baker);
         self
     }
 }
@@ -349,6 +401,69 @@ mod tests {
         let item = back.get(1).unwrap();
         assert_eq!(item.name, "Potion");
         assert_eq!(item.price, 50);
+    }
+
+    // A custom (consumer-defined) asset type's processed binary loads at runtime
+    // through the same RmmzBinLoader — the release path for custom data.
+    #[test]
+    fn custom_type_loads_from_processed_binary() {
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        use bevy_app::{App, TaskPoolPlugin};
+        use bevy_asset::io::memory::{Dir, MemoryAssetReader};
+        use bevy_asset::io::{AssetSourceBuilder, AssetSourceId};
+        use bevy_asset::{Asset, AssetApp, AssetPlugin, AssetServer, Assets, Handle};
+        use bevy_reflect::TypePath;
+        use serde::{Deserialize, Serialize};
+
+        use super::RmmzBinLoader;
+
+        #[derive(Asset, TypePath, Serialize, Deserialize, Clone)]
+        #[serde(transparent)]
+        struct AnimationMap(HashMap<String, String>);
+
+        let mut map = HashMap::new();
+        map.insert("furnitureBreak".to_owned(), "break".to_owned());
+        let bytes = postcard::to_stdvec(&AnimationMap(map)).unwrap();
+
+        let dir = Dir::default();
+        dir.insert_asset(Path::new("AnimationMap.rmmzbin"), bytes);
+        let reader_dir = dir.clone();
+
+        let mut app = App::new();
+        app.register_asset_source(
+            AssetSourceId::Default,
+            AssetSourceBuilder::new(move || {
+                Box::new(MemoryAssetReader {
+                    root: reader_dir.clone(),
+                })
+            }),
+        )
+        .add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin {
+                watch_for_changes_override: Some(false),
+                ..Default::default()
+            },
+        ))
+        .init_asset::<AnimationMap>()
+        .register_asset_loader(RmmzBinLoader::<AnimationMap>::default());
+
+        let handle: Handle<AnimationMap> = app
+            .world()
+            .resource::<AssetServer>()
+            .load("AnimationMap.rmmzbin");
+
+        let mut value = None;
+        for _ in 0..1000 {
+            app.update();
+            if let Some(asset) = app.world().resource::<Assets<AnimationMap>>().get(&handle) {
+                value = asset.0.get("furnitureBreak").cloned();
+                break;
+            }
+        }
+        assert_eq!(value.as_deref(), Some("break"));
     }
 
     #[test]
