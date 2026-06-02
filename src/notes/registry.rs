@@ -62,6 +62,25 @@ impl NoteRegistry {
     pub fn register<P: NoteParser>(&mut self, parser: P) {
         let type_id = TypeId::of::<P::Output>();
         let tag = P::TAG.to_owned();
+
+        // A TAG must map to exactly one output type: it is the key under which
+        // baked metadata is written and matched back on load. If a *different*
+        // output type already claims this tag, registering anyway would clobber
+        // the unbaker and silently corrupt baked notes (two same-tag entries
+        // both deserializing as one type). Refuse the later registration and
+        // warn. Re-registering the *same* output type is allowed and replaces
+        // the earlier parser.
+        if let Some((existing, _)) = self.unbakers.get(&tag)
+            && *existing != type_id
+        {
+            tracing::warn!(
+                tag = %tag,
+                "ignoring NoteParser registration: TAG already registered for a \
+                 different output type (NoteParser TAGs must be unique)"
+            );
+            return;
+        }
+
         let parser = Arc::new(parser);
 
         let parse = Arc::clone(&parser);
@@ -241,6 +260,19 @@ mod tests {
         }
     }
 
+    // A different output type that reuses ElementParser's `"element"` TAG.
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct Other(String);
+
+    struct CollidingParser;
+    impl NoteParser for CollidingParser {
+        type Output = Other;
+        const TAG: &'static str = "element"; // collides with ElementParser
+        fn parse(&self, tokens: &NoteTokens) -> Option<Other> {
+            tokens.value("element").map(|v| Other(v.to_owned()))
+        }
+    }
+
     fn registry() -> NoteRegistry {
         let mut reg = NoteRegistry::default();
         reg.register(ElementParser);
@@ -280,6 +312,29 @@ mod tests {
         let note = reg.unbake(&baked);
         assert_eq!(note.get::<Element>(), Some(&Element("fire".to_owned())));
         assert_eq!(note.get::<Boss>(), Some(&Boss));
+    }
+
+    #[test]
+    fn duplicate_tag_for_different_type_is_rejected() {
+        let mut reg = NoteRegistry::default();
+        reg.register(ElementParser);
+        reg.register(CollidingParser); // same TAG "element", different Output
+
+        // The first registration stands; the colliding one is refused wholesale.
+        let tokens = NoteTokens::parse("<element:fire>");
+        assert_eq!(
+            reg.parse::<Element>(&tokens),
+            Some(Element("fire".to_owned()))
+        );
+        assert!(!reg.has::<Other>());
+
+        // Baking/unbaking round-trips cleanly: exactly one entry for the tag, and
+        // it unbakes back to the owning type with no cross-type corruption.
+        let baked = reg.bake(&tokens);
+        assert_eq!(baked.len(), 1);
+        let note = reg.unbake(&baked);
+        assert_eq!(note.get::<Element>(), Some(&Element("fire".to_owned())));
+        assert!(note.get::<Other>().is_none());
     }
 
     #[test]
