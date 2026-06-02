@@ -1,13 +1,14 @@
 //! [`RmmzDatabase`], the ergonomic cross-table access layer.
 
-use bevy_asset::{AssetServer, Assets, UntypedHandle};
+use bevy_asset::{Asset, AssetServer, Assets, UntypedHandle};
 use bevy_ecs::system::SystemParam;
+use bevy_reflect::TypePath;
 use thiserror::Error;
 
 use crate::asset::{
     ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
-    ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset, TroopsAsset,
-    WeaponsAsset,
+    ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, Table, TilesetsAsset,
+    TroopsAsset, WeaponsAsset,
 };
 use crate::config::RmmzRegistry;
 use crate::data::{
@@ -168,45 +169,105 @@ pub fn rmmz_database_ready(db: RmmzDatabase) -> bool {
 #[error("one or more selected RPG Maker MZ database tables failed to load")]
 pub struct DatabaseLoadFailed;
 
+/// Manual-specialization access trait: each asset type knows how to fetch its
+/// loaded instance from the database. There is **no blanket impl**, so this is
+/// the stable-Rust stand-in for specialization — [`RmmzDatabase::asset`]
+/// dispatches to `A`'s own impl.
+///
+/// Currently implemented for the built-in asset types, which resolve zero-copy
+/// from their `Assets<…>` collections. Custom user-defined types gain impls
+/// (reading a snapshot) when custom-type support lands.
+pub trait RmmzFetch: Asset + Sized {
+    /// Fetches the loaded instance of `Self`, or `None` if it is not loaded.
+    fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self>;
+}
+
+/// Generates, per built-in table: a zero-copy [`RmmzFetch`] impl (reads the
+/// static `Assets<…>` collection by registry handle) plus the named convenience
+/// accessors, which delegate to the generic [`RmmzDatabase::asset`] path.
 macro_rules! table_accessors {
     ($($plural:ident / $single:ident => $asset:ty [$record:ty]),+ $(,)?) => {
         $(
-            #[doc = concat!("Returns the loaded `", stringify!($plural), "` table, or `None`.")]
-            pub fn $plural(&self) -> Option<&$asset> {
-                self.registry.handle::<$asset>().and_then(|h| self.$plural.get(&h))
-            }
-
-            #[doc = concat!("Returns the `", stringify!($single), "` with the given 1-based id.")]
-            pub fn $single(&self, id: usize) -> Option<&$record> {
-                self.$plural().and_then(|table| table.get(id))
+            impl RmmzFetch for $asset {
+                fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self> {
+                    db.registry.handle::<$asset>().and_then(|h| db.$plural.get(&h))
+                }
             }
         )+
+
+        impl RmmzDatabase<'_> {
+            $(
+                #[doc = concat!("Returns the loaded `", stringify!($plural), "` table, or `None`.")]
+                pub fn $plural(&self) -> Option<&$asset> {
+                    self.asset::<$asset>()
+                }
+
+                #[doc = concat!("Returns the `", stringify!($single), "` with the given 1-based id.")]
+                pub fn $single(&self, id: usize) -> Option<&$record> {
+                    self.$plural().and_then(|table| table.get(id))
+                }
+            )+
+        }
     };
 }
 
+table_accessors! {
+    actors / actor => ActorsAsset [Actor],
+    classes / class => ClassesAsset [Class],
+    skills / skill => SkillsAsset [Skill],
+    items / item => ItemsAsset [Item],
+    weapons / weapon => WeaponsAsset [Weapon],
+    armors / armor => ArmorsAsset [Armor],
+    enemies / enemy => EnemiesAsset [Enemy],
+    states / state => StatesAsset [State],
+    troops / troop => TroopsAsset [Troop],
+    animations / animation => AnimationsAsset [Animation],
+    tilesets / tileset => TilesetsAsset [Tileset],
+    common_events / common_event => CommonEventsAsset [CommonEvent],
+    map_infos / map_info => MapInfosAsset [MapInfo],
+}
+
+// `System.json` is a singleton asset; it reads its static collection directly.
+impl RmmzFetch for SystemAsset {
+    fn fetch<'a>(db: &'a RmmzDatabase<'_>) -> Option<&'a Self> {
+        db.registry
+            .handle::<SystemAsset>()
+            .and_then(|h| db.system.get(&h))
+    }
+}
+
 impl RmmzDatabase<'_> {
-    table_accessors! {
-        actors / actor => ActorsAsset [Actor],
-        classes / class => ClassesAsset [Class],
-        skills / skill => SkillsAsset [Skill],
-        items / item => ItemsAsset [Item],
-        weapons / weapon => WeaponsAsset [Weapon],
-        armors / armor => ArmorsAsset [Armor],
-        enemies / enemy => EnemiesAsset [Enemy],
-        states / state => StatesAsset [State],
-        troops / troop => TroopsAsset [Troop],
-        animations / animation => AnimationsAsset [Animation],
-        tilesets / tileset => TilesetsAsset [Tileset],
-        common_events / common_event => CommonEventsAsset [CommonEvent],
-        map_infos / map_info => MapInfosAsset [MapInfo],
+    /// Generic typed access to a registered asset `A`.
+    ///
+    /// `A` is the asset type — e.g. `db.asset::<SystemAsset>()`. For id-indexed
+    /// tables prefer [`Self::table`] / [`Self::record`]. (Custom user-defined
+    /// asset types become reachable here once custom-type support lands; today
+    /// the built-in asset types implement [`RmmzFetch`].)
+    pub fn asset<A: RmmzFetch>(&self) -> Option<&A> {
+        A::fetch(self)
+    }
+
+    /// The loaded table of records `R`, if `Table<R>` is registered.
+    pub fn table<R>(&self) -> Option<&Table<R>>
+    where
+        R: TypePath + Send + Sync + 'static,
+        Table<R>: RmmzFetch,
+    {
+        self.asset::<Table<R>>()
+    }
+
+    /// The record `R` with the given 1-based id, if `Table<R>` is registered.
+    pub fn record<R>(&self, id: usize) -> Option<&R>
+    where
+        R: TypePath + Send + Sync + 'static,
+        Table<R>: RmmzFetch,
+    {
+        self.table::<R>().and_then(|table| table.get(id))
     }
 
     /// Returns the loaded [`System`] settings, or `None`.
     pub fn system(&self) -> Option<&System> {
-        self.registry
-            .handle::<SystemAsset>()
-            .and_then(|h| self.system.get(&h))
-            .map(|asset| &asset.0)
+        self.asset::<SystemAsset>().map(|asset| &asset.0)
     }
 
     /// The aggregate load status across all selected tables.
@@ -493,6 +554,42 @@ mod tests {
             app.update();
         }
         assert_eq!(app.world().resource::<Ran>().0, at_ready + 5);
+    }
+
+    #[test]
+    fn generic_access_matches_named_accessors() {
+        use crate::asset::ItemsAsset;
+        use crate::data::Item;
+
+        #[derive(Resource, Default)]
+        struct G {
+            named: Option<String>,
+            record: Option<String>,
+            table_count: usize,
+            asset_present: bool,
+        }
+        fn gprobe(db: RmmzDatabase, mut out: ResMut<G>) {
+            if db.is_loaded() {
+                out.named = db.item(1).map(|i| i.name.clone());
+                out.record = db.record::<Item>(1).map(|i| i.name.clone());
+                out.table_count = db.table::<Item>().map_or(0, ItemsAsset::count);
+                out.asset_present = db.asset::<ItemsAsset>().is_some();
+            }
+        }
+
+        let mut app = build_app(
+            &[("data/Items.json", r#"[null,{"id":1,"name":"Potion"}]"#)],
+            &[CoreTable::Items],
+        );
+        app.init_resource::<G>().add_systems(Update, gprobe);
+        assert_eq!(run_until_settled(&mut app), DatabaseStatus::Loaded);
+
+        let g = app.world().resource::<G>();
+        // Generic accessors resolve to the same data as the named ones.
+        assert_eq!(g.named.as_deref(), Some("Potion"));
+        assert_eq!(g.record.as_deref(), Some("Potion"));
+        assert_eq!(g.table_count, 1);
+        assert!(g.asset_present);
     }
 
     #[test]
