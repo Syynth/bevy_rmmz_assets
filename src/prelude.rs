@@ -17,7 +17,7 @@ pub use crate::data::{
     Tileset, Trait, Troop, Weapon,
 };
 pub use crate::data::{HasId, HasNote};
-pub use crate::database::{DatabaseLoadFailed, DatabaseStatus, RmmzDatabase};
+pub use crate::database::{DatabaseLoadFailed, DatabaseStatus, RmmzDatabase, rmmz_database_ready};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
 #[cfg(feature = "maps")]

@@ -136,23 +136,44 @@ fn aggregate_status(server: &AssetServer, handles: &RmmzHandles) -> DatabaseStat
 #[derive(bevy_ecs::resource::Resource, Debug, Default, Clone, Copy)]
 pub struct RmmzLoadStatus(Option<DatabaseStatus>);
 
-/// System that latches the database status once it has settled. Added by
-/// [`RmmzAssetsPlugin`](crate::RmmzAssetsPlugin).
+/// Run condition for [`track_load_status`]: `true` until the load settles (and
+/// only once the handles exist). Gating the tracker on this lets the scheduler
+/// skip it entirely after the database has finished loading, instead of running
+/// it every frame just to early-return.
+pub(crate) fn load_status_unsettled(
+    handles: Option<bevy_ecs::system::Res<RmmzHandles>>,
+    latch: bevy_ecs::system::Res<RmmzLoadStatus>,
+) -> bool {
+    handles.is_some() && latch.0.is_none()
+}
+
+/// System that latches the database status once it has settled. Gated by
+/// [`load_status_unsettled`] and added by
+/// [`RmmzAssetsPlugin`](crate::RmmzAssetsPlugin), so it stops running once the
+/// status is known.
 pub(crate) fn track_load_status(
     server: bevy_ecs::system::Res<AssetServer>,
-    handles: Option<bevy_ecs::system::Res<RmmzHandles>>,
+    handles: bevy_ecs::system::Res<RmmzHandles>,
     mut latch: bevy_ecs::system::ResMut<RmmzLoadStatus>,
 ) {
-    if latch.0.is_some() {
-        return;
-    }
-    let Some(handles) = handles else {
-        return;
-    };
     let status = aggregate_status(&server, &handles);
     if status != DatabaseStatus::Loading {
         latch.0 = Some(status);
     }
+}
+
+/// A Bevy run condition that is `true` once every selected table has loaded
+/// successfully — gate database-dependent systems with
+/// `my_system.run_if(rmmz_database_ready)` instead of an in-system readiness
+/// check.
+///
+/// Equivalent to [`RmmzDatabase::is_loaded`]: `false` while still loading and on
+/// failure. It reads the **latched** status (see [`RmmzLoadStatus`]), so it is
+/// cheap to evaluate every frame — but, like the latch, it reflects the *initial*
+/// load outcome: once the database has settled it does not flip back to `false`
+/// on a later hot-reload failure (nor recover from an initial failure).
+pub fn rmmz_database_ready(db: RmmzDatabase) -> bool {
+    db.is_loaded()
 }
 
 /// Error returned by [`RmmzDatabase::ready`] when at least one selected table
@@ -441,6 +462,53 @@ mod tests {
             Some(DatabaseStatus::Loaded),
             "settled status should be latched"
         );
+    }
+
+    #[test]
+    fn ready_run_condition_gates_dependent_systems() {
+        use bevy_ecs::schedule::IntoScheduleConfigs;
+
+        use super::rmmz_database_ready;
+
+        #[derive(Resource, Default)]
+        struct Ran(u32);
+        fn bump(mut c: ResMut<Ran>) {
+            c.0 += 1;
+        }
+
+        let mut app = build_app(
+            &[("data/Items.json", r#"[null,{"id":1,"name":"Potion"}]"#)],
+            &[CoreTable::Items],
+        );
+        app.init_resource::<Ran>()
+            .add_systems(Update, bump.run_if(rmmz_database_ready));
+
+        // While still loading, the gated system must not run.
+        let mut status = DatabaseStatus::Loading;
+        for _ in 0..2000 {
+            app.update();
+            status = app
+                .world()
+                .resource::<Probe>()
+                .status
+                .unwrap_or(DatabaseStatus::Loading);
+            if status != DatabaseStatus::Loading {
+                break;
+            }
+            assert_eq!(
+                app.world().resource::<Ran>().0,
+                0,
+                "gated system ran before the database was ready"
+            );
+        }
+        assert_eq!(status, DatabaseStatus::Loaded);
+
+        // Once ready, it runs on every subsequent frame.
+        let at_ready = app.world().resource::<Ran>().0;
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Ran>().0, at_ready + 5);
     }
 
     #[test]
