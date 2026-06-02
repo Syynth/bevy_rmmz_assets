@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use bevy_asset::{AssetEvent, AssetServer, Assets, Handle};
+use bevy_asset::{AssetEvent, AssetId, AssetServer, Assets, Handle};
 use bevy_ecs::prelude::{Local, MessageReader, Res, ResMut, Resource};
 
 use crate::asset::{MapAsset, MapInfosAsset};
@@ -39,6 +39,9 @@ pub struct RmmzMaps {
     pub(crate) strategy: MapLoad,
     requested: HashSet<i32>,
     pub(crate) handles: HashMap<i32, Handle<MapAsset>>,
+    /// Reverse index (asset id → map id) so map-note caching can resolve an
+    /// [`AssetEvent`] to its map id in O(1) instead of scanning `handles`.
+    by_asset: HashMap<AssetId<MapAsset>, i32>,
 }
 
 impl RmmzMaps {
@@ -46,6 +49,24 @@ impl RmmzMaps {
     /// [`MapLoad::None`]). Idempotent.
     pub fn request(&mut self, id: i32) {
         self.requested.insert(id);
+    }
+
+    /// Records a loaded map's handle, keeping the reverse index in sync. Insert
+    /// through here rather than touching `handles` directly.
+    pub(crate) fn record_handle(&mut self, id: i32, handle: Handle<MapAsset>) {
+        let new_asset_id = handle.id();
+        // If this replaces an existing handle, drop the old asset's reverse-index
+        // entry first — otherwise a later Removed/Unused event for the stale asset
+        // would resolve through `map_id_for` and evict the replacement's cache.
+        if let Some(old) = self.handles.insert(id, handle) {
+            self.by_asset.remove(&old.id());
+        }
+        self.by_asset.insert(new_asset_id, id);
+    }
+
+    /// The map id that owns `asset_id`, if its handle has been recorded.
+    pub(crate) fn map_id_for(&self, asset_id: AssetId<MapAsset>) -> Option<i32> {
+        self.by_asset.get(&asset_id).copied()
     }
 
     /// The handle for a requested/loaded map, if any.
@@ -101,7 +122,7 @@ pub(crate) fn load_requested_maps(
         .collect();
     for id in pending {
         let handle = server.load(config.path(&format!("Map{id:03}.json")));
-        maps.handles.insert(id, handle);
+        maps.record_handle(id, handle);
     }
 }
 
@@ -142,11 +163,7 @@ pub(crate) fn cache_map_notes(
         };
 
         // Which map does this asset belong to?
-        let Some(map_id) = maps
-            .handles
-            .iter()
-            .find_map(|(id, handle)| (handle.id() == asset_id).then_some(*id))
-        else {
+        let Some(map_id) = maps.map_id_for(asset_id) else {
             continue;
         };
 
@@ -367,8 +384,7 @@ mod tests {
         let handle: Handle<MapAsset> = app.world().resource::<AssetServer>().load("Map.rmmzbin");
         app.world_mut()
             .resource_mut::<RmmzMaps>()
-            .handles
-            .insert(1, handle);
+            .record_handle(1, handle);
 
         let mut biome = None;
         for _ in 0..2000 {

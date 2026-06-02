@@ -30,6 +30,8 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features -- -D warnings
+      # Default features too, so the no-`maps`/no-`process` paths stay green.
+      - run: cargo clippy --all-targets -- -D warnings
 
   test:
     name: test
@@ -39,3 +41,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-features
+      - run: cargo test

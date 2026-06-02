@@ -90,6 +90,29 @@ fn use_maps(db: RmmzDatabase) {
 }
 ```
 
+### Ahead-of-time processing (optional, `process` feature)
+
+For release builds you can pre-process the JSON database into a compact
+[`postcard`](https://docs.rs/postcard) binary so the game loads it without any
+JSON or note parsing. Enable the `process` feature, register your note parsers,
+then register the processing pipeline before startup:
+
+```rust
+use bevy_rmmz_assets::prelude::*;
+
+// app.register_note_parser(ElementParser); // register parsers first
+// app.register_rmmz_processing();          // then the JSON -> binary pipeline
+```
+
+Because every RPG Maker file uses the `.json` extension, there is no single
+global default processor — each asset type has its own. `register_rmmz_processing`
+registers all of them; you opt a file in with an asset `.meta` that names the
+matching processor, and run Bevy with its asset processor enabled. Parsed note
+metadata is baked into the binary at processing time, so processed builds skip
+note parsing entirely. See the [`processing`] module docs for the full details.
+
+[`processing`]: https://docs.rs/bevy_rmmz_assets/latest/bevy_rmmz_assets/processing/index.html
+
 ## Goals
 
 - **Assets first.** Each MZ database file (`Actors.json`, `Items.json`,
