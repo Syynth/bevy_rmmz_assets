@@ -156,3 +156,20 @@ Each entry uses the format:
   on a failed load. Returning a `Result` forces callers to confront failure
   rather than mistaking it for "still loading." The latch was folded into the
   same change to also resolve the per-frame re-poll cost (audit finding F2).
+
+## Custom asset types: unify built-ins and custom tables on one generic registry
+- **WHEN:** 2026-06-02
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** assets / resource (cross-system)
+- **SCOPE:** architectural
+- **WHAT:** When implementing #37 (custom/third-party tables as first-class
+  peers), unify the built-in tables and consumer-registered custom tables onto a
+  single generic, type-keyed registry rather than maintaining a parallel path for
+  custom tables. Built-in convenience accessors become thin wrappers over the
+  generic mechanism.
+- **WHY:** Makes custom tables true peers of the built-ins (same status
+  aggregation, note cache, baking, and access), and collapses the current
+  ~8-site-per-table duplication (audit finding F4) instead of adding a second set
+  of parallel code paths to keep in sync. The larger refactor and churn to the
+  stable-ish API is accepted as worth the cleaner end state. Approach: a deeper
+  requirements interview first, before proposing the API.
