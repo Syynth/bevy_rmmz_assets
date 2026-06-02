@@ -21,6 +21,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of masquerading as "still loading" (the footgun `is_loaded()` invites).
 - The aggregate load status is latched once it settles, so steady-state
   `status()`/`is_loaded()`/`ready()` calls no longer re-poll every table handle.
+- `rmmz_database_ready` run condition, so database-dependent systems can be gated
+  with `my_system.run_if(rmmz_database_ready)`.
 
 ### Changed
 

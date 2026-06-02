@@ -2,6 +2,7 @@
 
 use bevy_app::{App, Plugin, Update};
 use bevy_asset::AssetApp;
+use bevy_ecs::schedule::IntoScheduleConfigs;
 
 use crate::asset::RmmzAsset;
 use crate::asset::{
@@ -10,7 +11,7 @@ use crate::asset::{
     TroopsAsset, WeaponsAsset,
 };
 use crate::data::{Actor, Armor, Class, Enemy, Item, Skill, State, Tileset, Weapon};
-use crate::database::{RmmzLoadStatus, track_load_status};
+use crate::database::{RmmzLoadStatus, load_status_unsettled, track_load_status};
 use crate::loader::RmmzJsonLoader;
 use crate::notes::{NoteRegistry, RmmzNoteCache, cache_table_notes};
 
@@ -48,8 +49,9 @@ impl Plugin for RmmzAssetsPlugin {
             .init_resource::<RmmzLoadStatus>();
 
         // Latch the aggregate load status once it settles, so steady-state
-        // `RmmzDatabase::status`/`ready` calls don't re-poll every handle.
-        app.add_systems(Update, track_load_status);
+        // `RmmzDatabase::status`/`ready` calls don't re-poll every handle. The
+        // run condition stops the tracker from running at all once settled.
+        app.add_systems(Update, track_load_status.run_if(load_status_unsettled));
 
         // Parse each note-bearing table's notes once on load (and on reload),
         // caching the typed metadata.
