@@ -156,6 +156,12 @@ matching processor, and run Bevy with its asset processor enabled. Parsed note
 metadata is baked into the binary at processing time, so processed builds skip
 note parsing entirely. See the [`processing`] module docs for the full details.
 
+Custom types bake too — `register_rmmz_bin::<T>()` (and `register_rmmz_bin_table`
+/ `register_rmmz_bin_note_table` for tables) wire the same pipeline for a
+consumer-defined type. Separately, with `file_watcher` off, custom assets are
+moved into the snapshot and their `Assets<A>` copy freed, so release builds store
+custom data once rather than twice.
+
 [`processing`]: https://docs.rs/bevy_rmmz_assets/latest/bevy_rmmz_assets/processing/index.html
 
 ## Goals
