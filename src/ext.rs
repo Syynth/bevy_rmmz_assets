@@ -4,17 +4,23 @@
 use bevy_app::Update;
 use bevy_app::{App, Startup};
 use bevy_asset::AssetServer;
-use bevy_ecs::prelude::{Commands, Res};
+use bevy_ecs::prelude::{Res, ResMut};
 
 use crate::RmmzAssetsPlugin;
-use crate::config::{CoreTable, RmmzConfig, RmmzHandles};
+use crate::asset::{
+    ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
+    ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset, TroopsAsset,
+    WeaponsAsset,
+};
+use crate::config::{CoreTable, RmmzConfig, RmmzRegistry};
 use crate::notes::{NoteParser, NoteRegistry};
 
 /// Convenience methods on [`App`] for setting up RPG Maker MZ loading.
 ///
 /// These build on [`RmmzAssetsPlugin`] (asset/loader registration) by also
 /// inserting a [`RmmzConfig`] and a startup system that kicks off loading the
-/// configured tables into [`RmmzHandles`].
+/// configured tables registered in the
+/// [`RmmzRegistry`](crate::config::RmmzRegistry).
 ///
 /// Bevy's `AssetPlugin` (part of `DefaultPlugins`) must be added first.
 pub trait RmmzAppExt {
@@ -43,9 +49,16 @@ impl RmmzAppExt for App {
     }
 
     fn add_rmmz_with(&mut self, config: RmmzConfig) -> &mut Self {
-        self.add_plugins(RmmzAssetsPlugin)
-            .insert_resource(config)
-            .add_systems(Startup, load_core_tables);
+        self.add_plugins(RmmzAssetsPlugin);
+
+        // Register the selected built-in tables into the (plugin-initialized)
+        // registry, then load everything registered at startup.
+        {
+            let mut registry = self.world_mut().get_resource_or_init::<RmmzRegistry>();
+            register_builtins(&mut registry, &config);
+        }
+        self.insert_resource(config)
+            .add_systems(Startup, load_registered);
 
         #[cfg(feature = "maps")]
         {
@@ -79,54 +92,60 @@ impl RmmzAppExt for App {
     }
 }
 
-/// Startup system: loads the configured core tables and records their handles.
-fn load_core_tables(mut commands: Commands, config: Res<RmmzConfig>, server: Res<AssetServer>) {
-    let mut handles = RmmzHandles::default();
-
+/// Registers the selected built-in tables into the registry (at app-build time).
+/// Files resolve under [`RmmzConfig::data_path`] when loaded.
+fn register_builtins(registry: &mut RmmzRegistry, config: &RmmzConfig) {
     if config.loads(CoreTable::Actors) {
-        handles.actors = Some(server.load(config.path("Actors.json")));
+        registry.register::<ActorsAsset>("Actors.json");
     }
     if config.loads(CoreTable::Classes) {
-        handles.classes = Some(server.load(config.path("Classes.json")));
+        registry.register::<ClassesAsset>("Classes.json");
     }
     if config.loads(CoreTable::Skills) {
-        handles.skills = Some(server.load(config.path("Skills.json")));
+        registry.register::<SkillsAsset>("Skills.json");
     }
     if config.loads(CoreTable::Items) {
-        handles.items = Some(server.load(config.path("Items.json")));
+        registry.register::<ItemsAsset>("Items.json");
     }
     if config.loads(CoreTable::Weapons) {
-        handles.weapons = Some(server.load(config.path("Weapons.json")));
+        registry.register::<WeaponsAsset>("Weapons.json");
     }
     if config.loads(CoreTable::Armors) {
-        handles.armors = Some(server.load(config.path("Armors.json")));
+        registry.register::<ArmorsAsset>("Armors.json");
     }
     if config.loads(CoreTable::Enemies) {
-        handles.enemies = Some(server.load(config.path("Enemies.json")));
+        registry.register::<EnemiesAsset>("Enemies.json");
     }
     if config.loads(CoreTable::States) {
-        handles.states = Some(server.load(config.path("States.json")));
+        registry.register::<StatesAsset>("States.json");
     }
     if config.loads(CoreTable::Troops) {
-        handles.troops = Some(server.load(config.path("Troops.json")));
+        registry.register::<TroopsAsset>("Troops.json");
     }
     if config.loads(CoreTable::Animations) {
-        handles.animations = Some(server.load(config.path("Animations.json")));
+        registry.register::<AnimationsAsset>("Animations.json");
     }
     if config.loads(CoreTable::Tilesets) {
-        handles.tilesets = Some(server.load(config.path("Tilesets.json")));
+        registry.register::<TilesetsAsset>("Tilesets.json");
     }
     if config.loads(CoreTable::CommonEvents) {
-        handles.common_events = Some(server.load(config.path("CommonEvents.json")));
+        registry.register::<CommonEventsAsset>("CommonEvents.json");
     }
     if config.loads(CoreTable::MapInfos) {
-        handles.map_infos = Some(server.load(config.path("MapInfos.json")));
+        registry.register::<MapInfosAsset>("MapInfos.json");
     }
     if config.loads(CoreTable::System) {
-        handles.system = Some(server.load(config.path("System.json")));
+        registry.register::<SystemAsset>("System.json");
     }
+}
 
-    commands.insert_resource(handles);
+/// Startup system: loads every registered table, recording its handle.
+fn load_registered(
+    mut registry: ResMut<RmmzRegistry>,
+    config: Res<RmmzConfig>,
+    server: Res<AssetServer>,
+) {
+    registry.load_all(&server, &config);
 }
 
 #[cfg(test)]
@@ -139,8 +158,8 @@ mod tests {
     use bevy_asset::{AssetApp, AssetPlugin, Assets};
 
     use super::RmmzAppExt;
-    use crate::asset::ItemsAsset;
-    use crate::config::{CoreTable, RmmzConfig, RmmzHandles};
+    use crate::asset::{ActorsAsset, ItemsAsset, SystemAsset};
+    use crate::config::{CoreTable, RmmzConfig, RmmzRegistry};
 
     fn app_with(files: &[(&str, &str)]) -> App {
         let dir = Dir::default();
@@ -176,12 +195,17 @@ mod tests {
         ]);
         app.add_rmmz_with(RmmzConfig::new("game"));
 
-        let items = run_until_loaded::<ItemsAsset>(&mut app, |h| h.items.clone())
+        let items = run_until_loaded::<ItemsAsset>(&mut app, RmmzRegistry::handle::<ItemsAsset>)
             .expect("Items.json should load");
         assert_eq!(items_name(&app, &items), "Potion");
 
         // System loaded too, via the same config.
-        assert!(app.world().resource::<RmmzHandles>().system.is_some());
+        assert!(
+            app.world()
+                .resource::<RmmzRegistry>()
+                .handle::<SystemAsset>()
+                .is_some()
+        );
     }
 
     #[test]
@@ -193,19 +217,19 @@ mod tests {
         for _ in 0..5 {
             app.update();
         }
-        let handles = app.world().resource::<RmmzHandles>();
-        assert!(handles.items.is_some());
-        assert!(handles.actors.is_none());
-        assert!(handles.system.is_none());
+        let registry = app.world().resource::<RmmzRegistry>();
+        assert!(registry.handle::<ItemsAsset>().is_some());
+        assert!(registry.handle::<ActorsAsset>().is_none());
+        assert!(registry.handle::<SystemAsset>().is_none());
     }
 
     fn run_until_loaded<A: bevy_asset::Asset>(
         app: &mut App,
-        pick: impl Fn(&RmmzHandles) -> Option<bevy_asset::Handle<A>>,
+        pick: impl Fn(&RmmzRegistry) -> Option<bevy_asset::Handle<A>>,
     ) -> Option<bevy_asset::Handle<A>> {
         for _ in 0..1000 {
             app.update();
-            if let Some(handle) = app.world().get_resource::<RmmzHandles>().and_then(&pick)
+            if let Some(handle) = app.world().get_resource::<RmmzRegistry>().and_then(&pick)
                 && app.world().resource::<Assets<A>>().get(&handle).is_some()
             {
                 return Some(handle);

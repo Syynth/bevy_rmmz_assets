@@ -1,16 +1,11 @@
 //! Configuration for which RPG Maker MZ data to load and from where, plus the
 //! resource that holds the resulting asset handles.
 
-use std::collections::HashSet;
+use std::any::TypeId;
+use std::collections::{HashMap, HashSet};
 
-use bevy_asset::Handle;
+use bevy_asset::{Asset, AssetServer, Handle, UntypedHandle};
 use bevy_ecs::prelude::Resource;
-
-use crate::asset::{
-    ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
-    ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset, TroopsAsset,
-    WeaponsAsset,
-};
 
 /// Identifies a core (non-map) RPG Maker MZ database file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,39 +149,66 @@ mod tests {
     }
 }
 
-/// Strong handles to the loaded core database assets.
+/// One registered asset type: where it loads from, and (once loaded) its handle.
+struct RegistryEntry {
+    /// Filename relative to [`RmmzConfig::data_path`], e.g. `"Items.json"`.
+    file: String,
+    /// Loads the file as the concrete asset type, capturing `A` behind a closure
+    /// so the (type-erased) registry can drive loading without knowing `A`.
+    load: Box<dyn Fn(&AssetServer, &str) -> UntypedHandle + Send + Sync>,
+    /// The handle, set once [`RmmzRegistry::load_all`] has run.
+    handle: Option<UntypedHandle>,
+}
+
+/// A `TypeId`-keyed registry of every asset type to load — built-in and custom
+/// alike.
 ///
-/// Populated on startup according to [`RmmzConfig`]. Holding the handles keeps
-/// the assets loaded; the resource layer reads them to build its indices. Each
-/// field is `Some` only if the corresponding table was selected for loading.
-#[derive(Resource, Debug, Default, Clone)]
-pub struct RmmzHandles {
-    /// Handle to the loaded `Actors.json`.
-    pub actors: Option<Handle<ActorsAsset>>,
-    /// Handle to the loaded `Classes.json`.
-    pub classes: Option<Handle<ClassesAsset>>,
-    /// Handle to the loaded `Skills.json`.
-    pub skills: Option<Handle<SkillsAsset>>,
-    /// Handle to the loaded `Items.json`.
-    pub items: Option<Handle<ItemsAsset>>,
-    /// Handle to the loaded `Weapons.json`.
-    pub weapons: Option<Handle<WeaponsAsset>>,
-    /// Handle to the loaded `Armors.json`.
-    pub armors: Option<Handle<ArmorsAsset>>,
-    /// Handle to the loaded `Enemies.json`.
-    pub enemies: Option<Handle<EnemiesAsset>>,
-    /// Handle to the loaded `States.json`.
-    pub states: Option<Handle<StatesAsset>>,
-    /// Handle to the loaded `Troops.json`.
-    pub troops: Option<Handle<TroopsAsset>>,
-    /// Handle to the loaded `Animations.json`.
-    pub animations: Option<Handle<AnimationsAsset>>,
-    /// Handle to the loaded `Tilesets.json`.
-    pub tilesets: Option<Handle<TilesetsAsset>>,
-    /// Handle to the loaded `CommonEvents.json`.
-    pub common_events: Option<Handle<CommonEventsAsset>>,
-    /// Handle to the loaded `MapInfos.json`.
-    pub map_infos: Option<Handle<MapInfosAsset>>,
-    /// Handle to the loaded `System.json`.
-    pub system: Option<Handle<SystemAsset>>,
+/// Replaces per-type handle fields with one map, so loading, status aggregation
+/// (and, in later phases, note caching and baking) all iterate a single
+/// structure. Built-ins are registered by
+/// [`RmmzAppExt::add_rmmz_with`](crate::ext::RmmzAppExt::add_rmmz_with) per the
+/// [`RmmzConfig`] selection; holding the handles keeps the assets loaded.
+#[derive(Resource, Default)]
+pub struct RmmzRegistry {
+    entries: HashMap<TypeId, RegistryEntry>,
+}
+
+impl RmmzRegistry {
+    /// Registers asset type `A` to load from `file` (relative to the data path).
+    /// Idempotent per type. Prefer the `App`-level helpers over calling this
+    /// directly.
+    pub fn register<A: Asset>(&mut self, file: impl Into<String>) {
+        self.entries
+            .entry(TypeId::of::<A>())
+            .or_insert_with(|| RegistryEntry {
+                file: file.into(),
+                load: Box::new(|server, path| server.load::<A>(path.to_owned()).untyped()),
+                handle: None,
+            });
+    }
+
+    /// The typed handle for `A`, if `A` is registered and has been loaded.
+    pub fn handle<A: Asset>(&self) -> Option<Handle<A>> {
+        self.entries
+            .get(&TypeId::of::<A>())
+            .and_then(|e| e.handle.clone())
+            .map(UntypedHandle::typed::<A>)
+    }
+
+    /// Loads every registered-but-unloaded type, recording its handle. Run once
+    /// at startup; idempotent thereafter.
+    pub(crate) fn load_all(&mut self, server: &AssetServer, config: &RmmzConfig) {
+        for entry in self.entries.values_mut() {
+            if entry.handle.is_none() {
+                let path = config.path(&entry.file);
+                entry.handle = Some((entry.load)(server, &path));
+            }
+        }
+    }
+
+    /// The current handle of each registered entry (`None` until loaded), for
+    /// status aggregation.
+    pub(crate) fn handles(&self) -> impl Iterator<Item = Option<&UntypedHandle>> + '_ {
+        self.entries.values().map(|e| e.handle.as_ref())
+    }
 }

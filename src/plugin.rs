@@ -10,6 +10,7 @@ use crate::asset::{
     ItemsAsset, MapAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
     TroopsAsset, WeaponsAsset,
 };
+use crate::config::RmmzRegistry;
 use crate::data::{Actor, Armor, Class, Enemy, Item, Skill, State, Tileset, Weapon};
 use crate::database::{RmmzLoadStatus, load_status_unsettled, track_load_status};
 use crate::loader::RmmzJsonLoader;
@@ -46,7 +47,8 @@ impl Plugin for RmmzAssetsPlugin {
 
         app.init_resource::<NoteRegistry>()
             .init_resource::<RmmzNoteCache>()
-            .init_resource::<RmmzLoadStatus>();
+            .init_resource::<RmmzLoadStatus>()
+            .init_resource::<RmmzRegistry>();
 
         // Latch the aggregate load status once it settles, so steady-state
         // `RmmzDatabase::status`/`ready` calls don't re-poll every handle. The
