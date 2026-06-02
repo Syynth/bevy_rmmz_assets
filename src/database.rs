@@ -211,7 +211,7 @@ impl RmmzDatabase<'_> {
         self.rmmz_maps
             .handle(id)
             .and_then(|handle| self.map_assets.get(handle))
-            .map(|asset| &asset.0)
+            .map(crate::asset::MapAsset::map)
     }
 
     /// The map ids listed in `MapInfos.json` (whether or not each is loaded).
