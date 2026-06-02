@@ -16,15 +16,44 @@
 //!
 //! RPG Maker games conventionally stash structured metadata in the free-text
 //! `note` field of database entries (the `<tag:value>` convention). This crate
-//! provides an extensible registry for parsing those notes into typed metadata.
+//! provides an extensible registry ([`notes`]) for parsing those notes into
+//! typed metadata. Notes are parsed once per record at load and cached, so
+//! lookups never re-parse.
 //!
-//! # Status
+//! # Quick start
 //!
-//! Early scaffold. The plugin currently wires up nothing; functionality lands
-//! incrementally (see the project's issue tracker).
+//! ```no_run
+//! use bevy_app::App;
+//! use bevy_rmmz_assets::prelude::*;
+//!
+//! let mut app = App::new();
+//! // ... add Bevy's AssetPlugin (e.g. via DefaultPlugins) first ...
+//! app.add_rmmz(); // load `data/*.json` and build the database
+//!
+//! fn read(db: RmmzDatabase) {
+//!     if let Some(item) = db.item(1) {
+//!         let _ = &item.name;
+//!     }
+//! }
+//! ```
+//!
+//! # Hot-reload
+//!
+//! Because [`RmmzDatabase`] reads the live `Assets<…>` collections and the note
+//! cache rebuilds on [`bevy_asset::AssetEvent::Modified`], edits to a `data`
+//! file are reflected automatically — no extra bookkeeping. Enable Bevy's
+//! filesystem watcher with the `file_watcher` feature (a passthrough to
+//! `bevy_asset/file_watcher`) during development.
+//!
+//! # Ahead-of-time processing
+//!
+//! With the `process` feature, Bevy's asset processor pre-processes the database
+//! into compact binary, **including** the parsed note metadata, so release
+//! builds load it without any JSON or note parsing. See [`processing`].
 //!
 //! [RPG Maker MZ]: https://www.rpgmakerweb.com/products/rpg-maker-mz
 //! [Bevy]: https://bevyengine.org
+//! [`RmmzDatabase`]: crate::database::RmmzDatabase
 
 pub mod asset;
 pub mod config;
