@@ -1,0 +1,5 @@
+{
+  "furnitureBreak": { "backend": "particles", "config": "break.json" },
+  "barrierShatter": { "backend": "shader", "config": "shatter.json" },
+  "testBurst": { "backend": "particles", "config": "burst.json" }
+}

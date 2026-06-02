@@ -41,6 +41,8 @@ process = ["bevy_asset/asset_processor"]
 bevy_app = "0.19.0-rc.2"
 bevy_asset = "0.19.0-rc.2"
 bevy_ecs = "0.19.0-rc.2"
+# Examples deriving a custom `Asset` need `TypePath` (a supertrait of `Asset`).
+bevy_reflect = "0.19.0-rc.2"
 serde = { version = "1", features = ["derive"] }
 
 [lints.rust]

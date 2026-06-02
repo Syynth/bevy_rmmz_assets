@@ -23,6 +23,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `status()`/`is_loaded()`/`ready()` calls no longer re-poll every table handle.
 - `rmmz_database_ready` run condition, so database-dependent systems can be gated
   with `my_system.run_if(rmmz_database_ready)`.
+- Generic typed access on `RmmzDatabase`: `asset::<A>()`, `table::<R>()`,
+  `record::<R>(id)` (built-in named accessors are now thin wrappers over these).
+- Custom single-document asset types: `register_rmmz::<A>(file)` + the
+  `rmmz_asset!` macro load a consumer-defined `data/*.json` into a typed asset,
+  reachable via `db.asset::<A>()`. See `examples/custom.rs`.
 
 ### Changed
 

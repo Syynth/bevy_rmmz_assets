@@ -64,6 +64,49 @@ A runnable example lives in [`examples/load.rs`](examples/load.rs):
 cargo run --example load
 ```
 
+### Custom data types
+
+Beyond the built-in tables you can load **your own** `data/*.json` files — the
+kind community plugins ship — as typed assets, reachable through the same
+`RmmzDatabase`. Define a type, wire it with `rmmz_asset!`, and register it:
+
+```rust
+use std::collections::HashMap;
+
+use bevy_asset::Asset;
+use bevy_reflect::TypePath;
+use bevy_rmmz_assets::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Asset, TypePath, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+struct AnimationMap(HashMap<String, String>);
+rmmz_asset!(AnimationMap);
+
+// In your app setup, after add_rmmz():
+//   app.register_rmmz::<AnimationMap>("AnimationMap.json");
+
+fn use_anim(db: RmmzDatabase) {
+    if let Some(map) = db.asset::<AnimationMap>() {
+        let _ = map.0.get("furnitureBreak");
+    }
+}
+```
+
+The type just needs `#[derive(Asset, …)]` and `Deserialize + Clone`. Built-in
+tables are reachable the same generic way — `db.asset::<ItemsAsset>()`,
+`db.table::<Item>()`, `db.record::<Item>(id)` — so code can treat built-in and
+custom data uniformly. A runnable version lives in
+[`examples/custom.rs`](examples/custom.rs):
+
+```sh
+cargo run --example custom
+```
+
+> Custom **id-array** tables (the MZ `Table<R>` shape) are not yet supported for
+> consumer types — only whole-document/singleton types. Most plugin data is
+> map- or object-shaped, so this covers the common case.
+
 ### Maps (optional, `maps` feature)
 
 `Map###.json` loading is opt-in. Enable it and choose a strategy, then read
