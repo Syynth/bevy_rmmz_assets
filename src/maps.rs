@@ -54,8 +54,14 @@ impl RmmzMaps {
     /// Records a loaded map's handle, keeping the reverse index in sync. Insert
     /// through here rather than touching `handles` directly.
     pub(crate) fn record_handle(&mut self, id: i32, handle: Handle<MapAsset>) {
-        self.by_asset.insert(handle.id(), id);
-        self.handles.insert(id, handle);
+        let new_asset_id = handle.id();
+        // If this replaces an existing handle, drop the old asset's reverse-index
+        // entry first — otherwise a later Removed/Unused event for the stale asset
+        // would resolve through `map_id_for` and evict the replacement's cache.
+        if let Some(old) = self.handles.insert(id, handle) {
+            self.by_asset.remove(&old.id());
+        }
+        self.by_asset.insert(new_asset_id, id);
     }
 
     /// The map id that owns `asset_id`, if its handle has been recorded.
