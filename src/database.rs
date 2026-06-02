@@ -342,4 +342,72 @@ mod tests {
         }
         assert_eq!(element.as_deref(), Some("fire"));
     }
+
+    #[test]
+    fn hot_reload_reparses_notes_and_updates_data() {
+        use bevy_asset::Assets;
+
+        use crate::asset::{ItemsAsset, Table};
+        use crate::config::RmmzHandles;
+        use crate::data::Item;
+
+        let mut app = build_app(
+            &[(
+                "data/Items.json",
+                r#"[null,{"id":1,"name":"Ember","note":"<element:fire>"}]"#,
+            )],
+            &[CoreTable::Items],
+        );
+        app.register_note_parser(ElementParser);
+
+        let mut element = None;
+        for _ in 0..1000 {
+            app.update();
+            element = app.world().resource::<Probe>().element.clone();
+            if element.is_some() {
+                break;
+            }
+        }
+        assert_eq!(element.as_deref(), Some("fire"));
+
+        // Simulate a hot-reload: replacing the asset fires AssetEvent::Modified,
+        // which both updates the live data and re-runs the note cache.
+        let handle = app.world().resource::<RmmzHandles>().items.clone().unwrap();
+        {
+            let mut items = app.world_mut().resource_mut::<Assets<ItemsAsset>>();
+            items
+                .insert(
+                    handle.id(),
+                    Table::new(vec![
+                        None,
+                        Some(Item {
+                            id: 1,
+                            name: "Cinder".to_owned(),
+                            note: "<element:ice>".to_owned(),
+                            ..Default::default()
+                        }),
+                    ]),
+                )
+                .unwrap();
+        }
+
+        let mut reparsed = None;
+        for _ in 0..1000 {
+            app.update();
+            reparsed = app.world().resource::<Probe>().element.clone();
+            if reparsed.as_deref() == Some("ice") {
+                break;
+            }
+        }
+        assert_eq!(
+            reparsed.as_deref(),
+            Some("ice"),
+            "note cache did not re-parse"
+        );
+        // Live data reflects the reload too.
+        assert_eq!(
+            app.world().resource::<Probe>().item1.as_deref(),
+            Some("Cinder")
+        );
+    }
 }
