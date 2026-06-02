@@ -8,6 +8,8 @@
     reason = "examples print their results"
 )]
 
+use std::process::ExitCode;
+
 use bevy_app::{App, TaskPoolPlugin, Update};
 use bevy_asset::AssetPlugin;
 use bevy_ecs::prelude::{ResMut, Resource};
@@ -58,7 +60,7 @@ fn report(db: RmmzDatabase, mut reported: ResMut<Reported>) {
     reported.0 = true;
 }
 
-fn main() {
+fn main() -> ExitCode {
     let mut app = App::new();
     app.add_plugins((
         TaskPoolPlugin::default(),
@@ -82,8 +84,9 @@ fn main() {
     for _ in 0..1000 {
         app.update();
         if app.world().resource::<Reported>().0 {
-            return;
+            return ExitCode::SUCCESS;
         }
     }
     eprintln!("database did not finish loading");
+    ExitCode::FAILURE
 }

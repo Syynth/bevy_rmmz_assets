@@ -49,7 +49,7 @@ impl NoteParser for ElementParser {
 }
 
 // app.register_note_parser(ElementParser);
-// then in a system: db.note_meta::<Element>(item)
+// then in a system: db.note_meta::<Element, _>(item)
 ```
 
 Notes are parsed once per record at load and cached, so `note_meta` lookups are
