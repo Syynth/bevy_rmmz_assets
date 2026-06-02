@@ -20,7 +20,12 @@ use crate::snapshot::RmmzAssets;
 ///
 /// Registers every database asset type ([`ActorsAsset`], [`ItemsAsset`], …,
 /// [`SystemAsset`], [`MapAsset`]) together with a JSON loader for each, plus the
-/// note-parser registry and the parse-once note cache.
+/// note-parser registry and note-cache *resources*.
+///
+/// The per-table note-cache *systems* are attached when note-bearing tables are
+/// registered through the registration-driven path (e.g.
+/// [`RmmzAppExt::add_rmmz_with`](crate::ext::RmmzAppExt::add_rmmz_with)), not by
+/// this plugin alone.
 ///
 /// Requires Bevy's `AssetPlugin` (included in `DefaultPlugins`) to be added
 /// **before** this plugin.
