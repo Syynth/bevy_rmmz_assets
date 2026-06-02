@@ -122,3 +122,20 @@ Each entry uses the format:
   versions are not field-uniform, so tolerance is required for the loader to be
   usable on actual games. Unknown/extra fields are already ignored by serde; this
   covers the missing-field direction.
+
+## Custom/third-party asset types as first-class peers
+- **WHEN:** 2026-06-02
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** assets / cross-system
+- **SCOPE:** architectural
+- **WHAT:** Treat support for consumer/third-party custom asset types and data
+  tables (as introduced by RMMZ community plugins) as a first-class design goal —
+  a game should be able to register its own tables and have them behave almost as
+  peers of the built-in core tables (typed DB access, status aggregation, note
+  cache/baking), not merely hand-load them. Design tracked in issue #37.
+- **WHY:** Real MZ projects routinely add plugin-specific data files/shapes; if
+  the crate only supports the fixed built-in set, those projects can't reuse the
+  resource/notes/processing machinery for their own data. Designing for
+  extensibility before the table surface ossifies at 0.1 avoids a breaking
+  redesign later (and collapses the current ~8-site edit burden for adding a
+  table).

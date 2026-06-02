@@ -54,6 +54,7 @@
 //! [RPG Maker MZ]: https://www.rpgmakerweb.com/products/rpg-maker-mz
 //! [Bevy]: https://bevyengine.org
 //! [`RmmzDatabase`]: crate::database::RmmzDatabase
+#![warn(missing_docs)]
 
 pub mod asset;
 pub mod config;

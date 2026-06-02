@@ -9,6 +9,10 @@ readme = "README.md"
 keywords = ["bevy", "rpgmaker", "rpgmaker-mz", "assets", "gamedev"]
 categories = ["game-development"]
 
+# Build docs.rs with every feature so the `maps` and `process` modules render.
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 bevy_app = "0.19.0-rc.2"
 bevy_asset = "0.19.0-rc.2"
