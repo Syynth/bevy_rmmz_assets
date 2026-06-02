@@ -145,10 +145,48 @@ pub type MapInfosAsset = Table<MapInfo>;
 #[serde(transparent)]
 pub struct SystemAsset(pub System);
 
-/// A parsed `Map###.json` (a single object, not an array).
+/// Note metadata baked for a map at processing time: serialized `(tag, bytes)`
+/// pairs for the map's own note plus per-event notes. Present only in processed
+/// (binary) map assets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapBakedNotes {
+    /// Baked metadata for the map's own `note`.
+    pub map: Vec<(String, Vec<u8>)>,
+    /// Baked metadata per event, as `(event id, tags)`.
+    pub events: Vec<(i32, Vec<(String, Vec<u8>)>)>,
+}
+
+/// A parsed `Map###.json`.
+///
+/// Carries optional [`baked`](MapAsset::baked) note metadata — present when
+/// loaded from a processed binary (notes parsed ahead of time), absent for JSON.
 #[derive(Asset, TypePath, Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct MapAsset(pub Map);
+pub struct MapAsset {
+    map: Map,
+    baked: Option<MapBakedNotes>,
+}
+
+impl MapAsset {
+    /// Wraps a freshly-deserialized map (no baked notes).
+    pub fn new(map: Map) -> Self {
+        Self { map, baked: None }
+    }
+
+    /// The map data.
+    pub fn map(&self) -> &Map {
+        &self.map
+    }
+
+    /// The baked note metadata, if this map came from a processed binary.
+    pub fn baked(&self) -> Option<&MapBakedNotes> {
+        self.baked.as_ref()
+    }
+
+    /// Attaches baked note metadata (used by the processing transformer).
+    pub fn set_baked(&mut self, baked: MapBakedNotes) {
+        self.baked = Some(baked);
+    }
+}
 
 impl RmmzAsset for SystemAsset {
     type Raw = System;
@@ -160,7 +198,7 @@ impl RmmzAsset for SystemAsset {
 impl RmmzAsset for MapAsset {
     type Raw = Map;
     fn from_raw(raw: Self::Raw) -> Self {
-        MapAsset(raw)
+        MapAsset::new(raw)
     }
 }
 

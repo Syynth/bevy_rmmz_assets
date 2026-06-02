@@ -36,6 +36,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
+#[cfg(feature = "maps")]
+use crate::asset::MapBakedNotes;
 use crate::asset::{
     AnimationsAsset, BakedRecordNotes, CommonEventsAsset, MapAsset, MapInfosAsset, RmmzAsset,
     SystemAsset, Table, TroopsAsset,
@@ -178,6 +180,63 @@ pub type RmmzBinNoteProcessor<R> = LoadTransformAndSave<
     RmmzBinSaver<Table<R>>,
 >;
 
+/// Bakes a map's own note plus its event notes at processing time.
+#[cfg(feature = "maps")]
+#[derive(TypePath)]
+pub struct MapNoteBakingTransformer {
+    baker: NoteBaker,
+}
+
+#[cfg(feature = "maps")]
+impl MapNoteBakingTransformer {
+    fn new(baker: NoteBaker) -> Self {
+        Self { baker }
+    }
+}
+
+#[cfg(feature = "maps")]
+impl AssetTransformer for MapNoteBakingTransformer {
+    type AssetInput = crate::asset::MapAsset;
+    type AssetOutput = crate::asset::MapAsset;
+    type Settings = ();
+    type Error = core::convert::Infallible;
+
+    async fn transform(
+        &self,
+        mut asset: TransformedAsset<crate::asset::MapAsset>,
+        _settings: &Self::Settings,
+    ) -> Result<TransformedAsset<crate::asset::MapAsset>, Self::Error> {
+        let baked = {
+            let map = asset.get().map();
+            let map_tags = self.baker.bake(&NoteTokens::parse(map.note()));
+            let events = map
+                .events
+                .iter()
+                .flatten()
+                .map(|event| (event.id, self.baker.bake(&NoteTokens::parse(event.note()))))
+                .filter(|(_, tags)| !tags.is_empty())
+                .collect::<Vec<_>>();
+            MapBakedNotes {
+                map: map_tags,
+                events,
+            }
+        };
+        if !baked.map.is_empty() || !baked.events.is_empty() {
+            asset.get_mut().set_baked(baked);
+        }
+        Ok(asset)
+    }
+}
+
+/// The [`Process`](bevy_asset::processor::Process) for a map: loads JSON, bakes
+/// the map + event notes, and saves the compact binary.
+#[cfg(feature = "maps")]
+pub type RmmzBinMapProcessor = LoadTransformAndSave<
+    RmmzJsonLoader<crate::asset::MapAsset>,
+    MapNoteBakingTransformer,
+    RmmzBinSaver<crate::asset::MapAsset>,
+>;
+
 /// App extension registering the binary processing pipeline.
 pub trait RmmzProcessingExt {
     /// Registers a binary loader and a JSON→binary processor for every core
@@ -212,7 +271,20 @@ impl RmmzProcessingExt for App {
         register::<CommonEventsAsset>(self);
         register::<MapInfosAsset>(self);
         register::<SystemAsset>(self);
+
+        // Maps bake their notes too (feature `maps`); otherwise data-only.
+        #[cfg(feature = "maps")]
+        {
+            self.register_asset_loader(RmmzBinLoader::<MapAsset>::default());
+            let processor = RmmzBinMapProcessor::new(
+                MapNoteBakingTransformer::new(baker.clone()),
+                RmmzBinSaver::<MapAsset>::default(),
+            );
+            self.register_asset_processor::<RmmzBinMapProcessor>(processor);
+        }
+        #[cfg(not(feature = "maps"))]
         register::<MapAsset>(self);
+
         self
     }
 }

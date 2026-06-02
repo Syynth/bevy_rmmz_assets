@@ -159,16 +159,30 @@ pub(crate) fn cache_map_notes(
         let Some(asset) = assets.get(asset_id) else {
             continue;
         };
-        let map = &asset.0;
 
-        let parsed = registry.parse_all(&NoteTokens::parse(map.note()));
-        if !parsed.is_empty() {
-            cache.maps.insert(map_id, parsed);
-        }
-        for event in map.events.iter().flatten() {
-            let parsed = registry.parse_all(&NoteTokens::parse(event.note()));
+        // Prefer baked metadata (parsed ahead of time); else parse the notes.
+        if let Some(baked) = asset.baked() {
+            let parsed = registry.unbake(&baked.map);
             if !parsed.is_empty() {
-                cache.events.insert((map_id, event.id), parsed);
+                cache.maps.insert(map_id, parsed);
+            }
+            for (event_id, tags) in &baked.events {
+                let parsed = registry.unbake(tags);
+                if !parsed.is_empty() {
+                    cache.events.insert((map_id, *event_id), parsed);
+                }
+            }
+        } else {
+            let map = asset.map();
+            let parsed = registry.parse_all(&NoteTokens::parse(map.note()));
+            if !parsed.is_empty() {
+                cache.maps.insert(map_id, parsed);
+            }
+            for event in map.events.iter().flatten() {
+                let parsed = registry.parse_all(&NoteTokens::parse(event.note()));
+                if !parsed.is_empty() {
+                    cache.events.insert((map_id, event.id), parsed);
+                }
             }
         }
     }
@@ -281,5 +295,102 @@ mod tests {
         assert_eq!(probe.map_name.as_deref(), Some("Town"), "map 1 should load");
         assert_eq!(probe.biome.as_deref(), Some("forest"), "map note parsed");
         assert_eq!(chest.as_deref(), Some("gold"), "event note parsed");
+    }
+
+    #[cfg(feature = "process")]
+    #[test]
+    fn baked_map_notes_load_into_cache_without_reparsing() {
+        use bevy_asset::{AssetServer, Handle};
+
+        use super::{RmmzMapNotes, RmmzMaps, cache_map_notes};
+        use crate::asset::{MapAsset, MapBakedNotes};
+        use crate::data::{Map, MapEvent};
+        use crate::notes::NoteRegistry;
+        use crate::processing::RmmzBinLoader;
+
+        // Bake a map's notes ahead of time (as the processing transformer does).
+        let mut bake = NoteRegistry::default();
+        bake.register(BiomeParser);
+        bake.register(ChestParser);
+        let map = Map {
+            display_name: "Town".to_owned(),
+            note: "<biome:forest>".to_owned(),
+            events: vec![
+                None,
+                Some(MapEvent {
+                    id: 1,
+                    note: "<chest:gold>".to_owned(),
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        };
+        let mut asset = MapAsset::new(map.clone());
+        asset.set_baked(MapBakedNotes {
+            map: bake.bake(&NoteTokens::parse(&map.note)),
+            events: vec![(1, bake.bake(&NoteTokens::parse("<chest:gold>")))],
+        });
+        let bytes = postcard::to_stdvec(&asset).unwrap();
+
+        let dir = Dir::default();
+        dir.insert_asset(Path::new("Map.rmmzbin"), bytes);
+        let reader_dir = dir.clone();
+
+        let mut runtime = NoteRegistry::default();
+        runtime.register(BiomeParser);
+        runtime.register(ChestParser);
+
+        let mut app = App::new();
+        app.register_asset_source(
+            AssetSourceId::Default,
+            AssetSourceBuilder::new(move || {
+                Box::new(MemoryAssetReader {
+                    root: reader_dir.clone(),
+                })
+            }),
+        )
+        .add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin {
+                watch_for_changes_override: Some(false),
+                ..Default::default()
+            },
+        ))
+        .init_asset::<MapAsset>()
+        .register_asset_loader(RmmzBinLoader::<MapAsset>::default())
+        .insert_resource(runtime)
+        .init_resource::<RmmzMaps>()
+        .init_resource::<RmmzMapNotes>()
+        .add_systems(Update, cache_map_notes);
+
+        // Load the baked map and register its handle under map id 1.
+        let handle: Handle<MapAsset> = app.world().resource::<AssetServer>().load("Map.rmmzbin");
+        app.world_mut()
+            .resource_mut::<RmmzMaps>()
+            .handles
+            .insert(1, handle);
+
+        let mut biome = None;
+        for _ in 0..2000 {
+            app.update();
+            biome = app
+                .world()
+                .resource::<RmmzMapNotes>()
+                .map(1)
+                .and_then(|n| n.get::<Biome>())
+                .map(|b| b.0.clone());
+            if biome.is_some() {
+                break;
+            }
+        }
+        assert_eq!(biome.as_deref(), Some("forest"), "baked map note unbaked");
+
+        let chest = app
+            .world()
+            .resource::<RmmzMapNotes>()
+            .event(1, 1)
+            .and_then(|n| n.get::<Chest>())
+            .map(|c| c.0.clone());
+        assert_eq!(chest.as_deref(), Some("gold"), "baked event note unbaked");
     }
 }
