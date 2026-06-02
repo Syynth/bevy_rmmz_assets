@@ -20,6 +20,8 @@ pub use crate::data::{HasId, HasNote};
 pub use crate::database::{DatabaseStatus, RmmzDatabase};
 pub use crate::ext::RmmzAppExt;
 pub use crate::loader::{RmmzJsonLoader, RmmzLoadError};
+#[cfg(feature = "maps")]
+pub use crate::maps::{MapLoad, RmmzMapNotes, RmmzMaps};
 pub use crate::notes::{NoteParser, NoteRegistry, NoteTag, NoteTokens, ParsedNote, RmmzNoteCache};
 #[cfg(feature = "process")]
 pub use crate::processing::{

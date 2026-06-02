@@ -61,6 +61,8 @@ pub mod data;
 pub mod database;
 pub mod ext;
 pub mod loader;
+#[cfg(feature = "maps")]
+pub mod maps;
 pub mod notes;
 #[cfg(feature = "process")]
 pub mod processing;

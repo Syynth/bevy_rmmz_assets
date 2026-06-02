@@ -1,5 +1,7 @@
 //! The [`RmmzAppExt`] convenience trait for wiring up loading.
 
+#[cfg(feature = "maps")]
+use bevy_app::Update;
 use bevy_app::{App, Startup};
 use bevy_asset::AssetServer;
 use bevy_ecs::prelude::{Commands, Res};
@@ -27,6 +29,12 @@ pub trait RmmzAppExt {
     /// cached note-metadata accessors. Register parsers before loading so the
     /// note cache includes them.
     fn register_note_parser<P: NoteParser>(&mut self, parser: P) -> &mut Self;
+
+    /// Enables map loading with the given strategy (default is off). Call after
+    /// [`Self::add_rmmz`]. Under [`MapLoad::Eager`](crate::maps::MapLoad::Eager),
+    /// `MapInfos` must be among the loaded tables.
+    #[cfg(feature = "maps")]
+    fn enable_rmmz_maps(&mut self, strategy: crate::maps::MapLoad) -> &mut Self;
 }
 
 impl RmmzAppExt for App {
@@ -37,13 +45,36 @@ impl RmmzAppExt for App {
     fn add_rmmz_with(&mut self, config: RmmzConfig) -> &mut Self {
         self.add_plugins(RmmzAssetsPlugin)
             .insert_resource(config)
-            .add_systems(Startup, load_core_tables)
+            .add_systems(Startup, load_core_tables);
+
+        #[cfg(feature = "maps")]
+        {
+            use crate::maps::{
+                RmmzMapNotes, RmmzMaps, cache_map_notes, eager_request_maps, load_requested_maps,
+            };
+            self.init_resource::<RmmzMaps>()
+                .init_resource::<RmmzMapNotes>()
+                .add_systems(
+                    Update,
+                    (eager_request_maps, load_requested_maps, cache_map_notes),
+                );
+        }
+
+        self
     }
 
     fn register_note_parser<P: NoteParser>(&mut self, parser: P) -> &mut Self {
         self.world_mut()
             .get_resource_or_init::<NoteRegistry>()
             .register(parser);
+        self
+    }
+
+    #[cfg(feature = "maps")]
+    fn enable_rmmz_maps(&mut self, strategy: crate::maps::MapLoad) -> &mut Self {
+        self.world_mut()
+            .get_resource_or_init::<crate::maps::RmmzMaps>()
+            .strategy = strategy;
         self
     }
 }

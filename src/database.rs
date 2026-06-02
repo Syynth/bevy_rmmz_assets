@@ -55,6 +55,12 @@ pub struct RmmzDatabase<'w> {
     common_events: bevy_ecs::system::Res<'w, Assets<CommonEventsAsset>>,
     map_infos: bevy_ecs::system::Res<'w, Assets<MapInfosAsset>>,
     system: bevy_ecs::system::Res<'w, Assets<SystemAsset>>,
+    #[cfg(feature = "maps")]
+    rmmz_maps: bevy_ecs::system::Res<'w, crate::maps::RmmzMaps>,
+    #[cfg(feature = "maps")]
+    map_assets: bevy_ecs::system::Res<'w, Assets<crate::asset::MapAsset>>,
+    #[cfg(feature = "maps")]
+    map_notes: bevy_ecs::system::Res<'w, crate::maps::RmmzMapNotes>,
 }
 
 /// Aggregate load status of the selected database tables.
@@ -195,6 +201,41 @@ impl RmmzDatabase<'_> {
         R: HasId + 'static,
     {
         self.note_cache.get::<R>(record.id())
+    }
+}
+
+#[cfg(feature = "maps")]
+impl RmmzDatabase<'_> {
+    /// Returns the loaded map with the given id, or `None` if it hasn't loaded.
+    pub fn map(&self, id: i32) -> Option<&crate::data::Map> {
+        self.rmmz_maps
+            .handle(id)
+            .and_then(|handle| self.map_assets.get(handle))
+            .map(|asset| &asset.0)
+    }
+
+    /// The map ids listed in `MapInfos.json` (whether or not each is loaded).
+    pub fn map_ids(&self) -> Vec<i32> {
+        self.handles
+            .map_infos
+            .as_ref()
+            .and_then(|handle| self.map_infos.get(handle))
+            .map(|infos| infos.iter().map(|info| info.id).collect())
+            .unwrap_or_default()
+    }
+
+    /// Parsed note metadata of type `O` for the given map.
+    pub fn map_note<O: Send + Sync + 'static>(&self, map_id: i32) -> Option<&O> {
+        self.map_notes.map(map_id)?.get::<O>()
+    }
+
+    /// Parsed note metadata of type `O` for an event within a map.
+    pub fn map_event_note<O: Send + Sync + 'static>(
+        &self,
+        map_id: i32,
+        event_id: i32,
+    ) -> Option<&O> {
+        self.map_notes.event(map_id, event_id)?.get::<O>()
     }
 }
 
