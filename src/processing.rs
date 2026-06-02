@@ -221,7 +221,10 @@ impl AssetTransformer for MapNoteBakingTransformer {
                 events,
             }
         };
-        if !baked.map.is_empty() || !baked.events.is_empty() {
+        // When baking is active, always record the (possibly empty) result so
+        // the runtime never re-parses a processed map. With no parsers, leave it
+        // unbaked to preserve the data-only path.
+        if !self.baker.is_empty() {
             asset.get_mut().set_baked(baked);
         }
         Ok(asset)
