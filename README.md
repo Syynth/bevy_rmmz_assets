@@ -21,8 +21,10 @@ use bevy_rmmz_assets::prelude::*;
 //   app.add_rmmz_with(RmmzConfig::new("data").with_tables([CoreTable::Items]));
 
 fn use_database(db: RmmzDatabase) {
-    if !db.is_loaded() {
-        return;
+    match db.ready() {
+        None => return,             // still loading this frame
+        Some(Err(_)) => return,     // a selected table failed to load — handle it
+        Some(Ok(())) => {}          // ready
     }
     if let Some(item) = db.item(1) {
         println!("item 1 is {}", item.name);

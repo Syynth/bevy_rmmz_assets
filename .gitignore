@@ -7,3 +7,6 @@
 
 # Claude Code native worktrees live here; don't track them.
 .claude/worktrees/
+
+# Claude Code scheduled-task lock
+.claude/*.lock

@@ -139,3 +139,20 @@ Each entry uses the format:
   extensibility before the table surface ossifies at 0.1 avoids a breaking
   redesign later (and collapses the current ~8-site edit burden for adding a
   table).
+
+## Load-state reporting: misuse-resistant `ready()` + settle latch
+- **WHEN:** 2026-06-02
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** resource (RmmzDatabase)
+- **SCOPE:** moderate
+- **WHAT:** Add `RmmzDatabase::ready() -> Option<Result<(), DatabaseLoadFailed>>`
+  as the recommended readiness check (`None` = loading, `Some(Ok)` = loaded,
+  `Some(Err)` = failed). Keep `is_loaded()` as a `== Loaded` convenience and
+  `status()`/`DatabaseStatus` as the canonical enum. Latch the aggregate status
+  once it settles (Loaded/Failed) so steady-state callers don't re-poll every
+  table handle each frame; the latch reflects the **initial** load outcome and is
+  not re-evaluated after settling.
+- **WHY:** The idiomatic `if !db.is_loaded() { return; }` silently spins forever
+  on a failed load. Returning a `Result` forces callers to confront failure
+  rather than mistaking it for "still loading." The latch was folded into the
+  same change to also resolve the per-frame re-poll cost (audit finding F2).

@@ -2,6 +2,7 @@
 
 use bevy_asset::{Asset, AssetServer, Assets, Handle};
 use bevy_ecs::system::SystemParam;
+use thiserror::Error;
 
 use crate::asset::{
     ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
@@ -41,6 +42,7 @@ pub struct RmmzDatabase<'w> {
     handles: bevy_ecs::system::Res<'w, RmmzHandles>,
     asset_server: bevy_ecs::system::Res<'w, AssetServer>,
     note_cache: bevy_ecs::system::Res<'w, RmmzNoteCache>,
+    load_status: bevy_ecs::system::Res<'w, RmmzLoadStatus>,
     actors: bevy_ecs::system::Res<'w, Assets<ActorsAsset>>,
     classes: bevy_ecs::system::Res<'w, Assets<ClassesAsset>>,
     skills: bevy_ecs::system::Res<'w, Assets<SkillsAsset>>,
@@ -103,6 +105,62 @@ fn table_status<A: Asset>(server: &AssetServer, handle: Option<&Handle<A>>) -> D
     }
 }
 
+/// The aggregate status across every selected table, computed live.
+fn aggregate_status(server: &AssetServer, handles: &RmmzHandles) -> DatabaseStatus {
+    table_status(server, handles.actors.as_ref())
+        .worse(table_status(server, handles.classes.as_ref()))
+        .worse(table_status(server, handles.skills.as_ref()))
+        .worse(table_status(server, handles.items.as_ref()))
+        .worse(table_status(server, handles.weapons.as_ref()))
+        .worse(table_status(server, handles.armors.as_ref()))
+        .worse(table_status(server, handles.enemies.as_ref()))
+        .worse(table_status(server, handles.states.as_ref()))
+        .worse(table_status(server, handles.troops.as_ref()))
+        .worse(table_status(server, handles.animations.as_ref()))
+        .worse(table_status(server, handles.tilesets.as_ref()))
+        .worse(table_status(server, handles.common_events.as_ref()))
+        .worse(table_status(server, handles.map_infos.as_ref()))
+        .worse(table_status(server, handles.system.as_ref()))
+}
+
+/// Caches the database's load status once it settles (becomes [`Loaded`] or
+/// [`Failed`]), so steady-state callers of [`RmmzDatabase::status`] /
+/// [`RmmzDatabase::is_loaded`] don't re-poll every table handle each frame.
+///
+/// The status is **latched at first settle**: it reflects the initial load
+/// outcome and is not re-evaluated afterward, so a later hot-reload failure does
+/// not flip a database that already reported [`Loaded`].
+///
+/// [`Loaded`]: DatabaseStatus::Loaded
+/// [`Failed`]: DatabaseStatus::Failed
+#[derive(bevy_ecs::resource::Resource, Debug, Default, Clone, Copy)]
+pub struct RmmzLoadStatus(Option<DatabaseStatus>);
+
+/// System that latches the database status once it has settled. Added by
+/// [`RmmzAssetsPlugin`](crate::RmmzAssetsPlugin).
+pub(crate) fn track_load_status(
+    server: bevy_ecs::system::Res<AssetServer>,
+    handles: Option<bevy_ecs::system::Res<RmmzHandles>>,
+    mut latch: bevy_ecs::system::ResMut<RmmzLoadStatus>,
+) {
+    if latch.0.is_some() {
+        return;
+    }
+    let Some(handles) = handles else {
+        return;
+    };
+    let status = aggregate_status(&server, &handles);
+    if status != DatabaseStatus::Loading {
+        latch.0 = Some(status);
+    }
+}
+
+/// Error returned by [`RmmzDatabase::ready`] when at least one selected table
+/// failed to load (missing file, parse error, …).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("one or more selected RPG Maker MZ database tables failed to load")]
+pub struct DatabaseLoadFailed;
+
 macro_rules! table_accessors {
     ($($plural:ident / $single:ident => $asset:ty [$record:ty]),+ $(,)?) => {
         $(
@@ -152,27 +210,50 @@ impl RmmzDatabase<'_> {
     /// otherwise [`DatabaseStatus::Loaded`]. Tables that were not selected for
     /// loading do not affect the result.
     pub fn status(&self) -> DatabaseStatus {
-        let s = &self.asset_server;
-        table_status(s, self.handles.actors.as_ref())
-            .worse(table_status(s, self.handles.classes.as_ref()))
-            .worse(table_status(s, self.handles.skills.as_ref()))
-            .worse(table_status(s, self.handles.items.as_ref()))
-            .worse(table_status(s, self.handles.weapons.as_ref()))
-            .worse(table_status(s, self.handles.armors.as_ref()))
-            .worse(table_status(s, self.handles.enemies.as_ref()))
-            .worse(table_status(s, self.handles.states.as_ref()))
-            .worse(table_status(s, self.handles.troops.as_ref()))
-            .worse(table_status(s, self.handles.animations.as_ref()))
-            .worse(table_status(s, self.handles.tilesets.as_ref()))
-            .worse(table_status(s, self.handles.common_events.as_ref()))
-            .worse(table_status(s, self.handles.map_infos.as_ref()))
-            .worse(table_status(s, self.handles.system.as_ref()))
+        // Fast path: once loading has settled, the tracker latches the result, so
+        // steady-state callers avoid re-polling every handle on each call.
+        if let Some(settled) = self.load_status.0 {
+            return settled;
+        }
+        aggregate_status(&self.asset_server, &self.handles)
     }
 
-    /// Whether every selected table has loaded successfully.
+    /// Polls the load as a misuse-resistant `Result`:
     ///
-    /// Returns `false` while still loading **and** on failure — use
-    /// [`Self::status`] or [`Self::is_failed`] to distinguish the two.
+    /// - `None` — still loading.
+    /// - `Some(Ok(()))` — every selected table loaded successfully.
+    /// - `Some(Err(`[`DatabaseLoadFailed`]`))` — at least one table failed.
+    ///
+    /// Prefer this over [`Self::is_loaded`] in systems that gate on readiness: a
+    /// failed load surfaces as `Err` rather than masquerading as "still loading",
+    /// so it can't be silently waited on forever.
+    ///
+    /// ```no_run
+    /// use bevy_rmmz_assets::prelude::*;
+    ///
+    /// fn use_db(db: RmmzDatabase) {
+    ///     match db.ready() {
+    ///         None => return,                 // still loading this frame
+    ///         Some(Err(_)) => return,         // load failed — handle/log it
+    ///         Some(Ok(())) => {}              // ready
+    ///     }
+    ///     let _ = db.item(1);
+    /// }
+    /// ```
+    pub fn ready(&self) -> Option<Result<(), DatabaseLoadFailed>> {
+        match self.status() {
+            DatabaseStatus::Loading => None,
+            DatabaseStatus::Loaded => Some(Ok(())),
+            DatabaseStatus::Failed => Some(Err(DatabaseLoadFailed)),
+        }
+    }
+
+    /// Whether every selected table has loaded successfully (i.e. status is
+    /// [`DatabaseStatus::Loaded`]).
+    ///
+    /// Returns `false` while still loading **and** on failure. To avoid waiting
+    /// forever on a failed load, prefer [`Self::ready`] (or check
+    /// [`Self::status`] / [`Self::is_failed`]).
     pub fn is_loaded(&self) -> bool {
         self.status() == DatabaseStatus::Loaded
     }
@@ -250,7 +331,7 @@ mod tests {
     use bevy_ecs::prelude::{ResMut, Resource};
     use serde::{Deserialize, Serialize};
 
-    use super::{DatabaseStatus, RmmzDatabase};
+    use super::{DatabaseLoadFailed, DatabaseStatus, RmmzDatabase, RmmzLoadStatus};
     use crate::config::{CoreTable, RmmzConfig};
     use crate::ext::RmmzAppExt;
     use crate::notes::{NoteParser, NoteTokens};
@@ -270,6 +351,7 @@ mod tests {
     #[derive(Resource, Default)]
     struct Probe {
         status: Option<DatabaseStatus>,
+        ready: Option<Result<(), DatabaseLoadFailed>>,
         item1: Option<String>,
         actor_count: usize,
         title: Option<String>,
@@ -278,6 +360,7 @@ mod tests {
 
     fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
         out.status = Some(db.status());
+        out.ready = db.ready();
         if db.is_loaded() {
             out.item1 = db.item(1).map(|i| i.name.clone());
             out.actor_count = db.actors().map_or(0, crate::asset::ActorsAsset::count);
@@ -351,6 +434,13 @@ mod tests {
         assert_eq!(probe.item1.as_deref(), Some("Potion"));
         assert_eq!(probe.actor_count, 2);
         assert_eq!(probe.title.as_deref(), Some("Demo"));
+        // `ready()` resolves to `Ok` once loaded, and the status latches.
+        assert_eq!(probe.ready, Some(Ok(())));
+        assert_eq!(
+            app.world().resource::<RmmzLoadStatus>().0,
+            Some(DatabaseStatus::Loaded),
+            "settled status should be latched"
+        );
     }
 
     #[test]
@@ -358,6 +448,12 @@ mod tests {
         // Items is selected but no Items.json exists in the source.
         let mut app = build_app(&[], &[CoreTable::Items]);
         assert_eq!(run_until_settled(&mut app), DatabaseStatus::Failed);
+        // A failed load surfaces through `ready()` as `Err`, not as "still
+        // loading" (`None`) — the footgun `is_loaded()` invites.
+        assert_eq!(
+            app.world().resource::<Probe>().ready,
+            Some(Err(DatabaseLoadFailed))
+        );
     }
 
     #[test]
