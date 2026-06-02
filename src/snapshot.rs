@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bevy_asset::{Asset, AssetEvent, Assets};
-use bevy_ecs::prelude::{MessageReader, Res, ResMut, Resource};
+#[cfg(feature = "file_watcher")]
+use bevy_ecs::prelude::Res;
+use bevy_ecs::prelude::{MessageReader, ResMut, Resource};
 
 use crate::config::RmmzRegistry;
 
@@ -35,10 +37,10 @@ impl RmmzAssets {
 }
 
 /// Mirrors a custom asset `A` into [`RmmzAssets`] on load/reload and drops it on
-/// removal. Registered once per custom type by
-/// [`RmmzAppExt::register_rmmz`](crate::ext::RmmzAppExt::register_rmmz).
-///
-/// Clones the asset once per (re)load into an `Arc` — cheap to read thereafter.
+/// removal, by **cloning** — used when `file_watcher` is on, so the live
+/// `Assets<A>` copy stays available for hot-reload. Registered once per custom
+/// type.
+#[cfg(feature = "file_watcher")]
 pub(crate) fn snapshot_asset<A: Asset + Clone>(
     mut events: MessageReader<AssetEvent<A>>,
     assets: Res<Assets<A>>,
@@ -69,6 +71,45 @@ pub(crate) fn snapshot_asset<A: Asset + Clone>(
                 snapshot.map.remove(&TypeId::of::<A>());
             }
             _ => {}
+        }
+    }
+}
+
+/// Mirrors a custom asset `A` into [`RmmzAssets`] by **moving** it out of
+/// `Assets<A>` and dropping its handle — used when `file_watcher` is off, so the
+/// data is stored once (in the snapshot) rather than twice. Registered once per
+/// custom type.
+///
+/// Note-bearing tables chain `cache_table_notes::<R>` *before* this, so notes are
+/// parsed from `Assets<A>` while it still holds the asset. Once moved, the entry
+/// is marked owned and this system no-ops (its handle is gone).
+#[cfg(not(feature = "file_watcher"))]
+pub(crate) fn own_snapshot_asset<A: Asset>(
+    mut events: MessageReader<AssetEvent<A>>,
+    mut assets: ResMut<Assets<A>>,
+    mut registry: ResMut<RmmzRegistry>,
+    mut snapshot: ResMut<RmmzAssets>,
+) {
+    let Some(registered) = registry.handle::<A>() else {
+        return; // already owned (handle dropped), or not yet registered
+    };
+    let registered = registered.id();
+    for event in events.read() {
+        let owned = matches!(
+            event,
+            AssetEvent::Added { id } | AssetEvent::LoadedWithDependencies { id }
+                if *id == registered
+        ) && {
+            if let Some(asset) = assets.remove(registered) {
+                snapshot.map.insert(TypeId::of::<A>(), Arc::new(asset));
+                registry.mark_owned::<A>();
+                true
+            } else {
+                false
+            }
+        };
+        if owned {
+            break;
         }
     }
 }

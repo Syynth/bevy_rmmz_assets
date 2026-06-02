@@ -156,8 +156,13 @@ struct RegistryEntry {
     /// Loads the file as the concrete asset type, capturing `A` behind a closure
     /// so the (type-erased) registry can drive loading without knowing `A`.
     load: Box<dyn Fn(&AssetServer, &str) -> UntypedHandle + Send + Sync>,
-    /// The handle, set once [`RmmzRegistry::load_all`] has run.
+    /// The handle, set once [`RmmzRegistry::load_all`] has run. Dropped to `None`
+    /// when the asset is [owned](RmmzRegistry::mark_owned) by the snapshot.
     handle: Option<UntypedHandle>,
+    /// Whether the loaded asset has been moved into the snapshot and its handle
+    /// dropped (custom types, `file_watcher` off). Owned entries count as loaded
+    /// for status, and are not re-loaded.
+    owned: bool,
 }
 
 /// A `TypeId`-keyed registry of every asset type to load — built-in and custom
@@ -184,7 +189,18 @@ impl RmmzRegistry {
                 file: file.into(),
                 load: Box::new(|server, path| server.load::<A>(path.to_owned()).untyped()),
                 handle: None,
+                owned: false,
             });
+    }
+
+    /// Marks `A` as owned by the snapshot: drops the held handle (freeing the
+    /// `Assets<A>` copy) while keeping the entry counted as loaded for status.
+    #[cfg(not(feature = "file_watcher"))]
+    pub(crate) fn mark_owned<A: Asset>(&mut self) {
+        if let Some(entry) = self.entries.get_mut(&TypeId::of::<A>()) {
+            entry.handle = None;
+            entry.owned = true;
+        }
     }
 
     /// The recorded handle for `A`, if `A` is registered and its load has been
@@ -202,16 +218,16 @@ impl RmmzRegistry {
     /// at startup; idempotent thereafter.
     pub(crate) fn load_all(&mut self, server: &AssetServer, config: &RmmzConfig) {
         for entry in self.entries.values_mut() {
-            if entry.handle.is_none() {
+            if entry.handle.is_none() && !entry.owned {
                 let path = config.path(&entry.file);
                 entry.handle = Some((entry.load)(server, &path));
             }
         }
     }
 
-    /// The current handle of each registered entry (`None` until loaded), for
-    /// status aggregation.
-    pub(crate) fn handles(&self) -> impl Iterator<Item = Option<&UntypedHandle>> + '_ {
-        self.entries.values().map(|e| e.handle.as_ref())
+    /// Each registered entry as `(owned, handle)` for status aggregation. An
+    /// `owned` entry counts as loaded even though its handle is `None`.
+    pub(crate) fn handles(&self) -> impl Iterator<Item = (bool, Option<&UntypedHandle>)> + '_ {
+        self.entries.values().map(|e| (e.owned, e.handle.as_ref()))
     }
 }

@@ -111,9 +111,18 @@ fn handle_status(server: &AssetServer, handle: Option<&UntypedHandle>) -> Databa
 /// The aggregate status across every registered table, computed live. An empty
 /// registry (nothing requested) is [`Loaded`](DatabaseStatus::Loaded).
 fn aggregate_status(server: &AssetServer, registry: &RmmzRegistry) -> DatabaseStatus {
-    registry.handles().fold(DatabaseStatus::Loaded, |acc, h| {
-        acc.worse(handle_status(server, h))
-    })
+    registry
+        .handles()
+        .fold(DatabaseStatus::Loaded, |acc, (owned, handle)| {
+            // An owned entry (asset moved into the snapshot, handle dropped) is
+            // loaded by definition; otherwise consult the handle's load state.
+            let status = if owned {
+                DatabaseStatus::Loaded
+            } else {
+                handle_status(server, handle)
+            };
+            acc.worse(status)
+        })
 }
 
 /// Caches the database's load status once it settles (becomes [`Loaded`] or
