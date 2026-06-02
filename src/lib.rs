@@ -109,3 +109,32 @@ macro_rules! rmmz_asset {
         }
     };
 }
+
+/// Wires a custom **table** record type (id-indexed `Table<R>`) for snapshot-backed
+/// access via `db.table::<R>()` / `db.record::<R>(id)`.
+///
+/// Implements [`RmmzTable`](crate::database::RmmzTable) for the record type so it
+/// resolves through the snapshot. Register the table with
+/// [`register_rmmz_table`](crate::ext::RmmzAppExt::register_rmmz_table) (or
+/// [`register_rmmz_note_table`](crate::ext::RmmzAppExt::register_rmmz_note_table)
+/// if its records carry `<tag:value>` notes). The record must `#[derive(TypePath,
+/// …)]` and be `Deserialize + Clone`.
+///
+/// ```ignore
+/// #[derive(bevy_reflect::TypePath, serde::Serialize, serde::Deserialize, Clone)]
+/// struct Quest { id: i32, name: String, note: String }
+/// rmmz_table!(Quest);
+/// // app.register_rmmz_table::<Quest>("QuestLog.json");  // after add_rmmz
+/// ```
+#[macro_export]
+macro_rules! rmmz_table {
+    ($ty:ty) => {
+        impl $crate::database::RmmzTable for $ty {
+            fn fetch_table<'__rmmz>(
+                db: &'__rmmz $crate::database::RmmzDatabase<'_>,
+            ) -> ::core::option::Option<&'__rmmz $crate::asset::Table<Self>> {
+                db.snapshot::<$crate::asset::Table<Self>>()
+            }
+        }
+    };
+}
