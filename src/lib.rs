@@ -67,9 +67,45 @@ pub mod maps;
 pub mod notes;
 #[cfg(feature = "process")]
 pub mod processing;
+pub mod snapshot;
 
 mod plugin;
 
 pub mod prelude;
 
 pub use plugin::RmmzAssetsPlugin;
+
+/// Wires a custom single-document asset type for loading + generic access.
+///
+/// Implements the small plumbing traits ([`RmmzAsset`](crate::asset::RmmzAsset)
+/// for the loader, [`RmmzFetch`](crate::database::RmmzFetch) for snapshot-backed
+/// access) so the type can be registered with
+/// [`RmmzAppExt::register_rmmz`](crate::ext::RmmzAppExt::register_rmmz) and read
+/// via `db.asset::<T>()`. The type must `#[derive(Asset, …)]` and be
+/// `Serialize + Deserialize + Clone`.
+///
+/// ```ignore
+/// #[derive(bevy_asset::Asset, bevy_reflect::TypePath, serde::Serialize, serde::Deserialize, Clone)]
+/// #[serde(transparent)]
+/// struct AnimationMap(std::collections::HashMap<String, AnimEntry>);
+/// rmmz_asset!(AnimationMap);
+/// // app.register_rmmz::<AnimationMap>("AnimationMap.json");  // after add_rmmz
+/// ```
+#[macro_export]
+macro_rules! rmmz_asset {
+    ($ty:ty) => {
+        impl $crate::asset::RmmzAsset for $ty {
+            type Raw = Self;
+            fn from_raw(raw: Self) -> Self {
+                raw
+            }
+        }
+        impl $crate::database::RmmzFetch for $ty {
+            fn fetch<'__rmmz>(
+                db: &'__rmmz $crate::database::RmmzDatabase<'_>,
+            ) -> ::core::option::Option<&'__rmmz Self> {
+                db.snapshot::<Self>()
+            }
+        }
+    };
+}

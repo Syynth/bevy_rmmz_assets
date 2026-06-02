@@ -29,3 +29,4 @@ pub use crate::notes::{NoteParser, NoteRegistry, NoteTag, NoteTokens, ParsedNote
 pub use crate::processing::{
     RmmzBinError, RmmzBinLoader, RmmzBinProcessor, RmmzBinSaver, RmmzProcessingExt,
 };
+pub use crate::rmmz_asset;
