@@ -62,6 +62,34 @@ A runnable example lives in [`examples/load.rs`](examples/load.rs):
 cargo run --example load
 ```
 
+### Maps (optional, `maps` feature)
+
+`Map###.json` loading is opt-in. Enable it and choose a strategy, then read
+maps and their notes by id:
+
+```rust
+use bevy_rmmz_assets::prelude::*;
+
+// after add_rmmz():
+//   app.enable_rmmz_maps(MapLoad::Eager);     // load all maps from MapInfos
+//   app.enable_rmmz_maps(MapLoad::OnDemand);  // load on request
+
+// Request maps in one system (RmmzDatabase reads RmmzMaps, so requesting —
+// which needs &mut RmmzMaps — must be a separate system):
+fn request_maps(mut maps: ResMut<RmmzMaps>) {
+    maps.request(1); // (OnDemand) ask for Map001.json
+}
+
+// Read maps and their note metadata in another:
+fn use_maps(db: RmmzDatabase) {
+    if let Some(map) = db.map(1) {
+        let _ = &map.display_name;
+        // db.map_note::<Biome>(1);
+        // db.map_event_note::<Chest>(1, event_id);
+    }
+}
+```
+
 ## Goals
 
 - **Assets first.** Each MZ database file (`Actors.json`, `Items.json`,
