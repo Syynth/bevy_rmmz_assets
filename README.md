@@ -103,9 +103,11 @@ custom data uniformly. A runnable version lives in
 cargo run --example custom
 ```
 
-> Custom **id-array** tables (the MZ `Table<R>` shape) are not yet supported for
-> consumer types — only whole-document/singleton types. Most plugin data is
-> map- or object-shaped, so this covers the common case.
+> Custom **id-array** tables (the MZ `Table<R>` shape) work too: define a record
+> type, `rmmz_table!(R)`, then `register_rmmz_table::<R>("File.json")` (or
+> `register_rmmz_note_table` if its records carry `<tag:value>` notes), and read
+> via `db.table::<R>()` / `db.record::<R>(id)`. Most plugin data is map- or
+> object-shaped, so the singleton form above is the common case.
 
 ### Maps (optional, `maps` feature)
 
