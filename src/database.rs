@@ -16,6 +16,7 @@ use crate::data::{
     Tileset, Troop, Weapon,
 };
 use crate::notes::{ParsedNote, RmmzNoteCache};
+use crate::snapshot::RmmzAssets;
 
 /// A [`SystemParam`] giving ergonomic, id-based read access to the loaded
 /// RPG Maker MZ database.
@@ -44,6 +45,7 @@ pub struct RmmzDatabase<'w> {
     asset_server: bevy_ecs::system::Res<'w, AssetServer>,
     note_cache: bevy_ecs::system::Res<'w, RmmzNoteCache>,
     load_status: bevy_ecs::system::Res<'w, RmmzLoadStatus>,
+    snapshots: bevy_ecs::system::Res<'w, RmmzAssets>,
     actors: bevy_ecs::system::Res<'w, Assets<ActorsAsset>>,
     classes: bevy_ecs::system::Res<'w, Assets<ClassesAsset>>,
     skills: bevy_ecs::system::Res<'w, Assets<SkillsAsset>>,
@@ -245,6 +247,12 @@ impl RmmzDatabase<'_> {
     /// the built-in asset types implement [`RmmzFetch`].)
     pub fn asset<A: RmmzFetch>(&self) -> Option<&A> {
         A::fetch(self)
+    }
+
+    /// Reads a custom asset from the snapshot. Public because macro-generated
+    /// [`RmmzFetch`] impls for custom types call it; prefer [`Self::asset`].
+    pub fn snapshot<A: Asset>(&self) -> Option<&A> {
+        self.snapshots.get::<A>()
     }
 
     /// The loaded table of records `R`, if `Table<R>` is registered.

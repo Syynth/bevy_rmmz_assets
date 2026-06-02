@@ -1,19 +1,20 @@
 //! The [`RmmzAppExt`] convenience trait for wiring up loading.
 
-#[cfg(feature = "maps")]
-use bevy_app::Update;
-use bevy_app::{App, Startup};
-use bevy_asset::AssetServer;
+use bevy_app::{App, Startup, Update};
+use bevy_asset::{AssetApp, AssetServer};
 use bevy_ecs::prelude::{Res, ResMut};
 
 use crate::RmmzAssetsPlugin;
 use crate::asset::{
     ActorsAsset, AnimationsAsset, ArmorsAsset, ClassesAsset, CommonEventsAsset, EnemiesAsset,
-    ItemsAsset, MapInfosAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset, TroopsAsset,
-    WeaponsAsset,
+    ItemsAsset, MapInfosAsset, RmmzAsset, SkillsAsset, StatesAsset, SystemAsset, TilesetsAsset,
+    TroopsAsset, WeaponsAsset,
 };
 use crate::config::{CoreTable, RmmzConfig, RmmzRegistry};
+use crate::database::RmmzFetch;
+use crate::loader::RmmzJsonLoader;
 use crate::notes::{NoteParser, NoteRegistry};
+use crate::snapshot::snapshot_asset;
 
 /// Convenience methods on [`App`] for setting up RPG Maker MZ loading.
 ///
@@ -35,6 +36,16 @@ pub trait RmmzAppExt {
     /// cached note-metadata accessors. Register parsers before loading so the
     /// note cache includes them.
     fn register_note_parser<P: NoteParser>(&mut self, parser: P) -> &mut Self;
+
+    /// Registers a custom single-document asset type `A`, loaded from `file`
+    /// (relative to the data path) and reachable via `db.asset::<A>()`.
+    ///
+    /// Implement the required traits with [`rmmz_asset!`](crate::rmmz_asset).
+    /// Call **after** [`Self::add_rmmz`] / [`Self::add_rmmz_with`], which install
+    /// the startup loader that drives loading.
+    fn register_rmmz<A>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        A: RmmzAsset + RmmzFetch + Clone;
 
     /// Enables map loading with the given strategy (default is off). Call after
     /// [`Self::add_rmmz`]. Under [`MapLoad::Eager`](crate::maps::MapLoad::Eager),
@@ -80,6 +91,20 @@ impl RmmzAppExt for App {
         self.world_mut()
             .get_resource_or_init::<NoteRegistry>()
             .register(parser);
+        self
+    }
+
+    fn register_rmmz<A>(&mut self, file: impl Into<String>) -> &mut Self
+    where
+        A: RmmzAsset + RmmzFetch + Clone,
+    {
+        self.init_asset::<A>()
+            .register_asset_loader(RmmzJsonLoader::<A>::default())
+            .add_systems(Update, snapshot_asset::<A>);
+        {
+            let mut registry = self.world_mut().get_resource_or_init::<RmmzRegistry>();
+            registry.register::<A>(file);
+        }
         self
     }
 
@@ -221,6 +246,60 @@ mod tests {
         assert!(registry.handle::<ItemsAsset>().is_some());
         assert!(registry.handle::<ActorsAsset>().is_none());
         assert!(registry.handle::<SystemAsset>().is_none());
+    }
+
+    #[test]
+    fn register_rmmz_loads_and_exposes_a_custom_singleton() {
+        use std::collections::HashMap;
+
+        use bevy_app::Update;
+        use bevy_asset::Asset;
+        use bevy_ecs::prelude::{ResMut, Resource};
+        use bevy_reflect::TypePath;
+        use serde::{Deserialize, Serialize};
+
+        use crate::database::RmmzDatabase;
+
+        // A string-keyed config map (the real codetta `AnimationMap.json` shape).
+        #[derive(Asset, TypePath, Serialize, Deserialize, Clone, Default)]
+        #[serde(transparent)]
+        struct AnimationMap(HashMap<String, String>);
+        crate::rmmz_asset!(AnimationMap);
+
+        #[derive(Resource, Default)]
+        struct Probe {
+            present: bool,
+            value: Option<String>,
+        }
+        fn probe(db: RmmzDatabase, mut out: ResMut<Probe>) {
+            if let Some(map) = db.asset::<AnimationMap>() {
+                out.present = true;
+                out.value = map.0.get("furnitureBreak").cloned();
+            }
+        }
+
+        let mut app = app_with(&[(
+            "data/AnimationMap.json",
+            r#"{"furnitureBreak":"break","test":"x"}"#,
+        )]);
+        app.init_resource::<Probe>()
+            .add_rmmz_with(RmmzConfig::default().with_tables([])) // no built-ins
+            .register_rmmz::<AnimationMap>("AnimationMap.json")
+            .add_systems(Update, probe);
+
+        let mut present = false;
+        for _ in 0..1000 {
+            app.update();
+            if app.world().resource::<Probe>().present {
+                present = true;
+                break;
+            }
+        }
+        assert!(present, "custom asset was never snapshotted");
+        assert_eq!(
+            app.world().resource::<Probe>().value.as_deref(),
+            Some("break")
+        );
     }
 
     fn run_until_loaded<A: bevy_asset::Asset>(

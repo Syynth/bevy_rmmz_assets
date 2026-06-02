@@ -15,6 +15,7 @@ use crate::data::{Actor, Armor, Class, Enemy, Item, Skill, State, Tileset, Weapo
 use crate::database::{RmmzLoadStatus, load_status_unsettled, track_load_status};
 use crate::loader::RmmzJsonLoader;
 use crate::notes::{NoteRegistry, RmmzNoteCache, cache_table_notes};
+use crate::snapshot::RmmzAssets;
 
 /// Wires RPG Maker MZ database loading into a Bevy [`App`].
 ///
@@ -48,7 +49,8 @@ impl Plugin for RmmzAssetsPlugin {
         app.init_resource::<NoteRegistry>()
             .init_resource::<RmmzNoteCache>()
             .init_resource::<RmmzLoadStatus>()
-            .init_resource::<RmmzRegistry>();
+            .init_resource::<RmmzRegistry>()
+            .init_resource::<RmmzAssets>();
 
         // Latch the aggregate load status once it settles, so steady-state
         // `RmmzDatabase::status`/`ready` calls don't re-poll every handle. The
