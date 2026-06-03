@@ -192,3 +192,15 @@ Each entry uses the format:
   of parallel code paths to keep in sync. The larger refactor and churn to the
   stable-ish API is accepted as worth the cleaner end state. Approach: a deeper
   requirements interview first, before proposing the API.
+
+## Publish 0.1.0 against Bevy 0.19.0-rc.2 (don't wait for 0.19 final)
+- **WHEN:** 2026-06-02
+- **PROJECT:** bevy_rmmz_assets
+- **SYSTEM:** release/packaging
+- **SCOPE:** moderate
+- **WHAT:** Publish `0.1.0` to crates.io against Bevy `0.19.0-rc.2` rather than
+  waiting for Bevy 0.19 final.
+- **WHY:** Staking the crate name and getting early feedback now outweighs the
+  downsides of depending on a pre-release (version requirement pins to the rc,
+  the rc could be yanked). The README already flags the crate's pre-release
+  status, so consumers are warned.

@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-03
+
 ### Added
 
 - Load RPG Maker MZ `data/*.json` database files as typed Bevy assets, with the
@@ -44,4 +46,5 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reuses an existing `TAG` for a different output type, instead of silently
   clobbering the baked-note unbaker.
 
-[Unreleased]: https://github.com/Syynth/bevy_rmmz_assets/commits/main
+[Unreleased]: https://github.com/Syynth/bevy_rmmz_assets/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Syynth/bevy_rmmz_assets/releases/tag/v0.1.0
