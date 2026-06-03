@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keep the SHA-pinned actions in ci.yml / release.yml current.
+  # Scoped to GitHub Actions only — the cargo deps are intentionally pinned to a
+  # Bevy pre-release, where dependency PRs would just be noise until 0.19 ships.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
