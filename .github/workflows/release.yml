@@ -25,7 +25,7 @@ jobs:
       # Third-party actions are pinned to full commit SHAs (not mutable tags)
       # because they run in the job that holds the publish token. Bump via
       # Dependabot; the trailing comment tracks the human-readable version.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
       - uses: dtolnay/rust-toolchain@6190aa5fb88a88ee71c12769924bbe63a9ab152e # 1.96
 
@@ -35,7 +35,7 @@ jobs:
 
       # Exchange the workflow's OIDC identity for a short-lived crates.io token.
       # No secret to leak: the token is scoped to this crate and expires fast.
-      - uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
         id: auth
 
       - run: cargo publish
@@ -43,6 +43,6 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           generate_release_notes: true
